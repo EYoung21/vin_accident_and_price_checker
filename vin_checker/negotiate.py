@@ -49,21 +49,33 @@ def _market_summary(report: VehicleReport) -> str:
 
 
 _SYSTEM = (
-    "You are a shrewd, realistic used-car buyer. From the CONVERSATION, first work "
-    "out where the negotiation currently stands: the lowest price the seller has "
-    "stated or agreed to, any number I've already offered, and anything tentatively "
-    "agreed. Then recommend my single best NEXT offer — aggressive but credible — "
-    "ANCHORED ON THE CURRENT STATE of the deal: if the seller has already come down, "
-    "build from that number, do NOT restart from the original asking price. Use the "
-    "market comps and history findings (salvage/title/odometer/needed repairs) as "
-    "leverage. Never exceed fair value; never lowball so hard it kills the deal. "
-    "IMPORTANT: the context may include pasted marketplace clutter (other cars, "
-    "menus, prices for unrelated listings) — ignore all of that and focus ONLY on "
-    "the back-and-forth between me and THIS seller about THIS vehicle. "
-    'Respond with ONLY JSON: {"offer": int, "rationale": "<=2 sentences, why this '
-    'number given where the deal already is", "current_state": "one line: where '
-    'the negotiation stands now"}.'
+    "You are a shrewd, realistic used-car buyer. Read the ENTIRE conversation "
+    "between ME (the buyer) and THIS seller and work out the deal state:\n"
+    "- asking_price: the seller's current asking price for THIS car.\n"
+    "- my_last_offer: the most recent price I (the buyer) proposed, if any.\n"
+    "- seller_accepted: TRUE if the seller agreed to my_last_offer. CRITICAL: a "
+    "seller AGREES when, after I name a price, they respond about logistics/timing/"
+    "pickup/address (e.g. 'tomorrow?', 'come get it', 'what time?', 'yes sir', "
+    "'I'm here', or they share their address) WITHOUT countering a different number. "
+    "Coordinating a meetup after a price = ACCEPTANCE, not rejection.\n"
+    "Then recommend my best NEXT move:\n"
+    "- If seller_accepted is true: the deal is DONE at my_last_offer — recommend "
+    "EXACTLY that number. Never negotiate against yourself or raise it.\n"
+    "- NEVER recommend more than asking_price. NEVER raise my own previous offer "
+    "unless the seller explicitly rejected it AND countered with a higher number.\n"
+    "- If no price has been discussed yet: open below asking, using comps/history "
+    "(salvage/title/odometer/repairs) as leverage.\n"
+    "Ignore unrelated marketplace listings, menus, and other cars in the paste.\n"
+    'Respond with ONLY JSON: {"offer": int, "asking_price": int|null, '
+    '"my_last_offer": int|null, "seller_accepted": true|false, "rationale": '
+    '"<=2 sentences", "current_state": "one line: where the deal stands now"}.'
 )
+
+
+def _int(v):
+    import re
+    d = re.sub(r"[^0-9]", "", str(v or ""))
+    return int(d) if d else None
 
 # Pasted Marketplace threads can be long; keep enough to include the whole chat.
 _CTX_LIMIT = 16000
@@ -83,14 +95,20 @@ def negotiate_offer(
     user = (f"MARKET & VEHICLE:\n{_market_summary(report)}\n\n"
             f"CONVERSATION / CONTEXT:\n{context[:_CTX_LIMIT]}")
     data, _ = llm.chat_json(_SYSTEM, [{"role": "user", "content": user}])
-    if not data or "offer" not in data:
+    if not data or (offer := _int(data.get("offer"))) is None:
         result.note = "model did not return a usable offer"
         return result
-    try:
-        result.final_offer = int(data["offer"])
-    except (TypeError, ValueError):
-        result.note = "model returned a non-numeric offer"
-        return result
+
+    # Deterministic guardrails on top of the model's number:
+    asking = _int(data.get("asking_price"))
+    my_last = _int(data.get("my_last_offer"))
+    accepted = bool(data.get("seller_accepted"))
+    if accepted and my_last:
+        offer = my_last        # deal is done at the price they accepted
+    if asking and offer > asking:
+        offer = asking         # never offer above the seller's asking price
+
+    result.final_offer = offer
     result.rationale = data.get("rationale") or None
     result.current_state = data.get("current_state") or None
 
