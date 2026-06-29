@@ -74,28 +74,42 @@ def _read_block(prompt: str) -> str:
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.keys import Keys
     except ImportError:
         return _read_block_basic(prompt)
 
     print(prompt)
-    print("(paste freely; Enter sends, Option+Enter = new line — see note below*)")
+    print("(paste freely — big pastes collapse to a placeholder; Enter sends, "
+          "Option+Enter / Shift+Enter = new line)")
     kb = KeyBindings()
+    pastes: dict[str, str] = {}  # placeholder token -> real pasted text
 
-    @kb.add("enter")          # Enter (\r) submits (pasted newlines arrive as paste
-    def _(event):             # data, so they don't trigger this and won't submit early)
+    @kb.add("enter")          # Enter (\r) submits
+    def _(event):
         event.current_buffer.validate_and_handle()
 
-    # Newline without sending: Option/Esc+Enter works in every terminal. c-j (\n) is
-    # what Shift+Enter sends in terminals you can map it in (VS Code, iTerm2, kitty).
-    @kb.add("c-j")
-    @kb.add("escape", "enter")
+    @kb.add("c-j")              # Shift+Enter (mappable terminals) / \n
+    @kb.add("escape", "enter")  # Option/Esc+Enter (works everywhere)
     def _(event):
         event.current_buffer.insert_text("\n")
 
+    @kb.add(Keys.BracketedPaste)  # collapse multi-line pastes, Claude-Code-style
+    def _(event):
+        data = event.data
+        if "\n" not in data and len(data) <= 80:
+            event.current_buffer.insert_text(data)  # small paste → inline
+            return
+        token = f"[Pasted text #{len(pastes) + 1} +{data.count(chr(10)) + 1} lines]"
+        pastes[token] = data
+        event.current_buffer.insert_text(token)
+
     try:
-        return PromptSession(multiline=True, key_bindings=kb).prompt("> ").strip()
+        text = PromptSession(multiline=True, key_bindings=kb).prompt("> ")
     except (EOFError, KeyboardInterrupt):
         return ""
+    for token, data in pastes.items():  # expand placeholders back to real text
+        text = text.replace(token, data)
+    return text.strip()
 
 
 def _interactive() -> tuple[str, int | None, str]:
