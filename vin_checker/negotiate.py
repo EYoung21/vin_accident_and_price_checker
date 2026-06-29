@@ -88,13 +88,25 @@ _CTX_LIMIT = 16000
 
 
 def negotiate_offer(
-    report: VehicleReport, context: str, progress=None
+    report: VehicleReport, context: str, agreed_price: int | None = None, progress=None
 ) -> NegotiationResult:
     p = progress or (lambda *_: None)
     result = NegotiationResult()
     if not llm.available():
         result.available = False
         result.note = "LLM unavailable (install boto3 + set AWS creds), or run with --no-llm"
+        return result
+
+    # Off-thread agreement: you settled a price over text/call that isn't in the
+    # paste. Trust it deterministically — lock it in and write a confirmation; never
+    # let the model re-open the deal or invent a different number.
+    if agreed_price:
+        result.final_offer = agreed_price
+        result.deal_agreed = True
+        result.current_state = f"You already agreed on ${agreed_price:,} off-thread (text/call)."
+        result.rationale = "You marked this price as already settled."
+        p("confirming the deal")
+        result.draft_message = _draft_reply(report, context, agreed_price, deal_agreed=True)
         return result
 
     p("working out an offer")

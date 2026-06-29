@@ -42,6 +42,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--vin", help="17-character VIN (omit all flags for interactive mode)")
     p.add_argument("--listing", type=Path, help="text file with a pasted listing")
     p.add_argument("--mileage", type=int, help="odometer, tightens the comps")
+    p.add_argument("--agreed", type=int, metavar="PRICE",
+                   help="a price you already settled off-thread (text/call) — drafts a "
+                        "confirmation to lock it in, not a fresh offer")
     p.add_argument("--context", type=Path, help="text file: listing + seller chat → offer")
     p.add_argument("--list", action="store_true", dest="list_checks",
                    help="show all cars you've checked, ranked best-to-worst")
@@ -61,7 +64,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def _interactive() -> tuple[str, int | None, str]:
+def _interactive() -> tuple[str, int | None, str, int | None]:
     print("=== VIN checker — paste a car you're looking at ===\n")
     # Paste FIRST (this is the collapse-aware block), then pull VIN + mileage out of
     # it. This way there's one place to paste and it always behaves like Claude Code.
@@ -84,7 +87,13 @@ def _interactive() -> tuple[str, int | None, str]:
     if mileage is None:
         raw = input("Mileage (optional, Enter to skip): ").strip().replace(",", "")
         mileage = int(raw) if raw.isdigit() else None
-    return vin, mileage, context
+
+    # Did you settle a price over text/call that isn't in the paste? Stating it here
+    # locks the deal so the draft confirms it instead of re-opening an offer.
+    raw = input("Already agreed a price off-thread (text/call)? $ (Enter to skip): ") \
+        .strip().replace(",", "").replace("$", "")
+    agreed = int(raw) if raw.isdigit() else None
+    return vin, mileage, context, agreed
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -106,9 +115,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     context = ""
+    agreed = args.agreed
     if not args.vin and not args.listing:
-        vin, mileage, context = _interactive()
+        vin, mileage, context, agreed_in = _interactive()
         mileage = args.mileage or mileage
+        agreed = args.agreed or agreed_in
     elif args.listing:
         context = args.listing.read_text(errors="ignore")
         from vin_checker.listing_parse import parse_listing
@@ -187,10 +198,10 @@ def main(argv: list[str] | None = None) -> int:
             dist = geo.distance(loc)
 
     neg = None
-    if context and not args.no_llm:
+    if (context or agreed) and not args.no_llm:
         from vin_checker.negotiate import negotiate_offer
 
-        neg = negotiate_offer(report, context, progress=prog)
+        neg = negotiate_offer(report, context, agreed_price=agreed, progress=prog)
 
     if args.plain:
         print(render_text(report))
