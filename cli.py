@@ -24,6 +24,7 @@ from vin_checker.report import (
     build_report,
     render_card,
     render_json,
+    render_draft,
     render_negotiation,
     render_offer_private,
     render_text,
@@ -164,9 +165,11 @@ def main(argv: list[str] | None = None) -> int:
         if neg is not None:
             print(render_negotiation(neg))
     else:
-        # Shareable card first (screenshot this for the seller), private offer after.
+        # Shareable card first (screenshot this for the seller), then a ready-to-send
+        # draft reply, then your private offer cheat-sheet (don't send that one).
         print("\n" + render_card(report))
         if neg is not None:
+            print(render_draft(neg))
             print(render_offer_private(neg))
 
     # Log this check so `vincheck --list` can rank cars you're comparing.

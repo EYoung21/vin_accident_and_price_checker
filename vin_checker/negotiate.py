@@ -19,6 +19,7 @@ from .report import VehicleReport
 class NegotiationResult:
     final_offer: int | None = None
     rounds: list[dict] = field(default_factory=list)  # [{offer, rationale, held}]
+    draft_message: str | None = None  # ready-to-send reply to the seller
     available: bool = True
     note: str = ""
 
@@ -111,4 +112,22 @@ def negotiate_offer(
             ),
         })
 
+    if result.final_offer:
+        result.draft_message = _draft_reply(report, context, result.final_offer)
     return result
+
+
+def _draft_reply(report: VehicleReport, context: str, offer: int) -> str | None:
+    """A short, ready-to-send message continuing the negotiation with the seller."""
+    system = (
+        "Write a short message I will send a PRIVATE car seller to continue our "
+        "negotiation (or to open with an offer if there's no prior chat). Tone: "
+        "friendly but firm, like a normal buyer texting — NOT a form letter, and "
+        "never mention any tool, report, or AI. Naturally use the concrete facts "
+        "(salvage/title brand, auction record, odometer, needed repairs, market "
+        f"comps) as the reason for my number, and clearly offer ${offer:,}. "
+        '2-5 sentences. Return ONLY JSON: {"message": str}.'
+    )
+    user = f"FINDINGS:\n{_market_summary(report)}\n\nCONVERSATION SO FAR:\n{context[:4000]}"
+    data, _ = llm.chat_json(system, [{"role": "user", "content": user}])
+    return (data or {}).get("message") or None

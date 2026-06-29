@@ -251,6 +251,16 @@ def render_card(r: VehicleReport) -> str:
     return "\n".join(L)
 
 
+def render_draft(neg) -> str:
+    """Seller-facing message — safe to send (no AI/offer-math mentioned)."""
+    if neg is None or not getattr(neg, "draft_message", None):
+        return ""
+    L = ["", "✉️  DRAFT MESSAGE TO SELLER  (review/tweak, then send)", "   " + "-" * 56]
+    for line in textwrap.wrap(neg.draft_message, _CARD_W + 2):
+        L.append("   " + line)
+    return "\n".join(L)
+
+
 def render_offer_private(neg) -> str:
     """Your eyes only — keep this OUT of any screenshot you send the seller."""
     if neg is None or not getattr(neg, "final_offer", None):
