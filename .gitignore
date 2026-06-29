@@ -1,0 +1,10 @@
+# Secrets and local env — never in the public (non-PII) repo.
+.env
+
+# Captured vehicle HTML / specific-car data — PII repo only (force-added there).
+automation_html/
+
+# Python
+.venv/
+__pycache__/
+*.pyc

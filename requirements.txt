@@ -1,0 +1,12 @@
+# Core HTTP + parsing
+requests>=2.31
+python-dotenv>=1.0
+beautifulsoup4>=4.12
+
+# Browser-grade TLS impersonation for bot-protected sites (stat.vin / vincheck.info).
+# Drop-in requests-like API that mimics Chrome's JA3/JA4 fingerprint.
+curl_cffi>=0.7
+
+# Optional: only needed for the LLM listing-parse / ranking layer (Bedrock).
+# Safe to leave uninstalled if you run with --no-llm.
+boto3>=1.34
