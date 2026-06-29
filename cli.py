@@ -78,15 +78,17 @@ def _read_block(prompt: str) -> str:
         return _read_block_basic(prompt)
 
     print(prompt)
-    print("(paste the whole thing — multi-line is fine — then press Enter to send;")
-    print(" Option/Esc+Enter inserts a manual newline)")
+    print("(paste freely; Enter sends, Option+Enter = new line — see note below*)")
     kb = KeyBindings()
 
-    @kb.add("enter")          # Enter submits (pasted newlines arrive as paste data,
-    def _(event):             # so they don't trigger this and won't submit early)
+    @kb.add("enter")          # Enter (\r) submits (pasted newlines arrive as paste
+    def _(event):             # data, so they don't trigger this and won't submit early)
         event.current_buffer.validate_and_handle()
 
-    @kb.add("escape", "enter")  # Esc+Enter (Option+Enter) = literal newline
+    # Newline without sending: Option/Esc+Enter works in every terminal. c-j (\n) is
+    # what Shift+Enter sends in terminals you can map it in (VS Code, iTerm2, kitty).
+    @kb.add("c-j")
+    @kb.add("escape", "enter")
     def _(event):
         event.current_buffer.insert_text("\n")
 
