@@ -8,18 +8,56 @@ chat). It can call a web_search tool when a question needs fresh/external info
 
 from __future__ import annotations
 
+import re
+import shutil
 import sys
+import textwrap
 
 from . import llm, websearch
+from .report import BOLD, DIM, paint
 
 _SYSTEM_PREFIX = (
     "You are my used-car buying advisor. Everything currently known about the car "
     "I'm considering is below. Answer my follow-up questions concisely and honestly, "
     "using this info plus your knowledge; call the web_search tool when fresh or "
     "external info would help (current prices, specific specs, known problems, "
-    "recalls). For negotiation questions, use the deal state. Be direct and brief.\n\n"
+    "recalls). For negotiation questions, use the deal state.\n"
+    "STYLE: write for a plain terminal — short paragraphs and simple '- ' bullets "
+    "only. No markdown headers (#), no bold (**), no tables, no '---' rules. Be "
+    "direct; answer first, then briefly why. Don't ask clarifying questions unless "
+    "truly necessary — make a reasonable assumption and answer.\n\n"
     "=== WHAT WE KNOW ===\n"
 )
+
+
+def _fmt(text: str) -> str:
+    """Clean stray markdown, wrap, and indent for readable terminal output."""
+    width = min(88, max(60, shutil.get_terminal_size((100, 20)).columns - 4))
+    out: list[str] = []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line:
+            out.append("")
+            continue
+        if len(line.strip()) >= 3 and set(line.strip()) <= set("-*_"):  # md rule
+            out.append("   " + paint("─" * (width - 6), DIM))
+            continue
+        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)   # drop bold markers
+        line = re.sub(r"`([^`]+)`", r"\1", line)        # drop code ticks
+        if (m := re.match(r"^\s*#{1,6}\s+(.*)$", line)):  # header -> bold line
+            for w in textwrap.wrap(m.group(1), width):
+                out.append("   " + paint(w, BOLD))
+            continue
+        if (m := re.match(r"^\s*[-*]\s+(.*)$", line)):    # bullet
+            out += textwrap.wrap(m.group(1), width, initial_indent="   - ",
+                                 subsequent_indent="     ")
+            continue
+        if (m := re.match(r"^\s*(\d+)\.\s+(.*)$", line)):  # numbered
+            out += textwrap.wrap(m.group(2), width, initial_indent=f"   {m.group(1)}. ",
+                                 subsequent_indent="      ")
+            continue
+        out += textwrap.wrap(line, width, initial_indent="   ", subsequent_indent="   ")
+    return "\n".join(out)
 
 
 def _briefing(report, research, neg, pros, cons, context) -> str:
@@ -71,7 +109,7 @@ def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="")
         if not q or q.lower() in ("q", "quit", "exit"):
             break
         messages.append({"role": "user", "content": q})
-        print("  … thinking", file=sys.stderr, flush=True)
+        print(paint("  … thinking", DIM), file=sys.stderr, flush=True)
         ans = (llm.chat_with_search(system, messages, websearch.search)
                or llm.chat_text(system, messages))
         if not ans:
@@ -79,4 +117,5 @@ def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="")
             messages.pop()
             continue
         messages.append({"role": "assistant", "content": ans})
-        print("\n" + ans)
+        print(paint("  " + "─" * 58, DIM))
+        print(_fmt(ans))
