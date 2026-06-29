@@ -47,7 +47,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def _read_block(prompt: str) -> str:
+def _read_block_basic(prompt: str) -> str:
+    """Fallback reader (piped input, or no prompt_toolkit): blank line / Ctrl-D ends."""
     print(prompt)
     print("(paste it all, then press Enter on an empty line to finish)")
     lines: list[str] = []
@@ -62,6 +63,36 @@ def _read_block(prompt: str) -> str:
             continue   # ignore blank lines before any content
         lines.append(line)
     return "\n".join(lines).strip()
+
+
+def _read_block(prompt: str) -> str:
+    """Claude-Code-style paste: bracketed paste keeps a multi-line block intact
+    (internal blank lines don't submit early); a single Enter sends it."""
+    if not sys.stdin.isatty():
+        return _read_block_basic(prompt)
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.key_binding import KeyBindings
+    except ImportError:
+        return _read_block_basic(prompt)
+
+    print(prompt)
+    print("(paste the whole thing — multi-line is fine — then press Enter to send;")
+    print(" Option/Esc+Enter inserts a manual newline)")
+    kb = KeyBindings()
+
+    @kb.add("enter")          # Enter submits (pasted newlines arrive as paste data,
+    def _(event):             # so they don't trigger this and won't submit early)
+        event.current_buffer.validate_and_handle()
+
+    @kb.add("escape", "enter")  # Esc+Enter (Option+Enter) = literal newline
+    def _(event):
+        event.current_buffer.insert_text("\n")
+
+    try:
+        return PromptSession(multiline=True, key_bindings=kb).prompt("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
 
 
 def _interactive() -> tuple[str, int | None, str]:

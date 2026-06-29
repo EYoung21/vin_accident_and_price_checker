@@ -7,6 +7,10 @@ beautifulsoup4>=4.12
 # Drop-in requests-like API that mimics Chrome's JA3/JA4 fingerprint.
 curl_cffi>=0.7
 
+# Claude-Code-style pasting (bracketed paste) for the interactive prompt.
+# Falls back to a plain line reader if not installed.
+prompt_toolkit>=3.0
+
 # Optional: only needed for the LLM listing-parse / ranking layer (Bedrock).
 # Safe to leave uninstalled if you run with --no-llm.
 boto3>=1.34
