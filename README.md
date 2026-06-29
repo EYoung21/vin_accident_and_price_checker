@@ -44,7 +44,8 @@ distance-to-you), search radius, Bedrock model, and log dir. Secrets stay in `.e
 ```bash
 vincheck                       # interactive: paste the listing+chat, it does the rest
 vincheck --list                # your backlog of checked cars, ranked best-to-worst
-vincheck --compare             # LLM compares all checked cars (or: --compare VIN1 VIN2)
+vincheck --compare             # pick cars by number → colored scorecard + ranked pick + chat
+vincheck --compare VIN1 VIN2   # compare specific cars (full or partial VINs)
 python cli.py --vin <VIN> --json
 ```
 
@@ -53,6 +54,13 @@ table (verdict, value, offer, distance-to-you, location). A run gives you: a
 shareable card, distance from home, web-grounded specs/0-60/problems + an in-person
 inspection checklist, pros/cons, a draft reply, your private offer, then a
 web-searching follow-up chat.
+
+`--compare` renders a colored side-by-side scorecard (price vs market, distance,
+0-60, power, reliability via known problems + recalls + complaints, NCAP, title)
+with the best car in each row highlighted, per-car detail blocks (look/drive,
+audio/speakers, bluetooth, problems), then an LLM ranking weighted to what you care
+about, then a chat about the comparison. Cars logged before research existed are
+back-filled on first compare and cached.
 
 ## The two sites that need a captured HTML sample
 

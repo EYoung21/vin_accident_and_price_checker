@@ -218,15 +218,29 @@ def main(argv: list[str] | None = None) -> int:
     from vin_checker.logstore import save_check
 
     banner, _ = verdict(report)
+    d = report.decoded
     save_check({
-        "vin": report.decoded.vin, "vehicle": report.decoded.full_name,
+        "vin": d.vin, "vehicle": report.decoded.full_name,
         "mileage": report.mileage, "verdict": banner,
         "value_median": report.comps.median,
+        "value_low": report.comps.low, "value_high": report.comps.high,
         "offer": getattr(neg, "final_offer", None) if neg else None,
         "deal_agreed": getattr(neg, "deal_agreed", False) if neg else False,
         "location": (dist or {}).get("place"),
         "distance_mi": (dist or {}).get("drive_mi") or (dist or {}).get("straight_mi"),
         "drive_min": (dist or {}).get("drive_min"),
+        # Specs + safety + web-grounded research → so `--compare` can stack cars on
+        # 0-60, power, audio, bluetooth, and reliability without re-fetching.
+        "hp": d.hp, "doors": d.doors, "drive_type": d.drive_type,
+        "transmission": d.transmission, "body_class": d.body_class,
+        "ncap": report.safety.overall if report.safety else None,
+        "recalls": (None if report.recalls.error else report.recalls.count),
+        "complaints": report.recalls.complaint_count,
+        "research": {
+            "zero_to_sixty": res.zero_to_sixty, "performance": res.performance,
+            "audio": res.audio, "connectivity": res.connectivity,
+            "common_problems": res.common_problems,
+        } if (res and res.available) else {},
     })
     return 0
 
