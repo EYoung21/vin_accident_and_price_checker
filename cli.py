@@ -123,14 +123,26 @@ def _read_block(prompt: str) -> str:
 
 def _interactive() -> tuple[str, int | None, str]:
     print("=== VIN checker — paste a car you're looking at ===\n")
-    while True:
-        vin = input("VIN (or press Enter to pull it from your paste): ").strip().upper()
-        if not vin or is_valid_vin(vin):
-            break
-        print("  ↳ not a valid 17-char VIN — re-enter, or Enter to pull from the paste")
-    raw_mi = input("Mileage (optional, Enter to skip): ").strip().replace(",", "")
-    mileage = int(raw_mi) if raw_mi.isdigit() else None
-    context = _read_block("\nPaste the listing — ask price, description, your chat with the seller:")
+    # Paste FIRST (this is the collapse-aware block), then pull VIN + mileage out of
+    # it. This way there's one place to paste and it always behaves like Claude Code.
+    context = _read_block(
+        "Paste everything — the listing + your chat with the seller (or just a VIN):")
+
+    from vin_checker.listing_parse import parse_listing
+    parsed = parse_listing(context, use_llm=False)
+
+    vin = parsed.vin or ""
+    while not vin:
+        v = input("\nNo VIN found in your paste — enter the 17-char VIN: ").strip().upper()
+        if is_valid_vin(v):
+            vin = v
+        else:
+            print("  ↳ not a valid 17-char VIN")
+
+    mileage = parsed.mileage
+    if mileage is None:
+        raw = input("Mileage (optional, Enter to skip): ").strip().replace(",", "")
+        mileage = int(raw) if raw.isdigit() else None
     return vin, mileage, context
 
 
