@@ -24,6 +24,7 @@ from vin_checker.report import (
     build_report,
     render_card,
     render_json,
+    render_diagnostics,
     render_draft,
     render_negotiation,
     render_offer_private,
@@ -43,6 +44,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--json", action="store_true", help="emit JSON instead of a card")
     p.add_argument("--plain", action="store_true", help="plain text instead of the card")
     p.add_argument("--no-llm", action="store_true", help="disable LLM parsing + offer")
+    p.add_argument("--debug", action="store_true",
+                   help="print diagnostics (comp filtering, why history is unverified, errors)")
     p.add_argument("--statvin-fixture", type=Path, help="captured stat.vin result HTML")
     p.add_argument("--vincheck-fixture", type=Path, help="captured vincheck.info HTML")
     return p.parse_args(argv)
@@ -172,6 +175,19 @@ def main(argv: list[str] | None = None) -> int:
         )
     except DecodeError as e:
         sys.exit(f"Decode failed: {e}")
+
+    if args.debug:
+        diag = render_diagnostics(report)
+        print("\n" + diag, file=sys.stderr)
+        try:
+            from datetime import datetime
+            logp = Path(__file__).resolve().parent / ".cache" / "debug.log"
+            logp.parent.mkdir(exist_ok=True)
+            with logp.open("a") as f:
+                f.write(f"\n=== {datetime.now().isoformat(timespec='seconds')} "
+                        f"{report.decoded.vin} ===\n{diag}\n")
+        except OSError:
+            pass
 
     if args.json:
         print(render_json(report))

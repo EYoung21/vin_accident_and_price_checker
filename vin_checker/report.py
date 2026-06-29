@@ -43,7 +43,12 @@ def build_report(
 
 
 def verdict(r: VehicleReport) -> tuple[str, str]:
-    """One-glance buy/pass call computed from the flags. Returns (banner, reason)."""
+    """One-glance call from the flags. Four states, by what we actually found:
+      ❌ HARD PASS   — deal-breaker found (salvage/rebuilt/etc., auction, rollback)
+      ⚠️ CAUTION     — real but non-fatal issue found (theft/accident, minor brand)
+      ✅ LOOKS CLEAN — verified: no brand/theft/accident on record
+      ❓ UNVERIFIED  — couldn't check history (no capture) — *not* a caution
+    """
     h = r.history
     bad = [b for b in h.title_brands if b in _DEALBREAKER]
     rollback = bool(r.mileage and h.auction_odometer and r.mileage < h.auction_odometer - 1000)
@@ -56,9 +61,21 @@ def verdict(r: VehicleReport) -> tuple[str, str]:
         if rollback:
             reasons.append("odometer rollback")
         return "❌ HARD PASS", "; ".join(reasons)
-    if h.title_status == "clean" and h.auction_status in ("clean", "inconclusive"):
-        return "✅ LOOKS CLEAN", "no title brand or auction record found (free sources)"
-    return "⚠️  CAUTION", "couldn't fully verify history — capture stat.vin/vincheck to confirm"
+
+    # Real findings that aren't deal-breakers → caution (an issue, not missing data).
+    caution = [b for b in h.title_brands if b not in _DEALBREAKER]  # e.g. hail
+    for n in h.notes:
+        nl = n.lower()
+        if "theft" in nl and "record" in nl:
+            caution.append("theft record")
+        elif "accident" in nl and "record" in nl:
+            caution.append("prior accident record")
+    if caution:
+        return "⚠️ CAUTION", "; ".join(dict.fromkeys(caution))
+
+    if h.title_status == "clean":
+        return "✅ LOOKS CLEAN", "no title brand, theft, or accident record found"
+    return "❓ UNVERIFIED", "title/salvage history not checked — capture stat.vin/vincheck"
 
 
 # --------------------------------------------------------------------------- #
@@ -270,6 +287,23 @@ def render_offer_private(neg) -> str:
         tag = "hold" if rnd["held"] else f"round {i + 1}"
         L.append(f"   [{tag}] {_money(rnd['offer'])} — {rnd['rationale']}")
     L.append(f"\n   >> OFFER THIS: {_money(neg.final_offer)}")
+    return "\n".join(L)
+
+
+def render_diagnostics(r: VehicleReport) -> str:
+    """Why did it say what it said — for testing/debugging."""
+    L = ["DIAGNOSTICS", f"  decode: {r.decoded.full_name}  (trim={r.decoded.trim})"]
+    L.append(f"  comps: {r.comps.count} after refine · sources={r.comps.sources_used or '[]'}")
+    for n in r.comps.notes:
+        L.append(f"      · {n}")
+    L.append(f"  history: title={r.history.title_status} · auction={r.history.auction_status}"
+             f" · lot={r.history.auction_lot} · photos={len(r.history.auction_photos)}")
+    for n in r.history.notes:
+        L.append(f"      · {n}")
+    if r.recalls.error:
+        L.append(f"  recalls error: {r.recalls.error}")
+    if r.safety and r.safety.error:
+        L.append(f"  safety: {r.safety.error}")
     return "\n".join(L)
 
 

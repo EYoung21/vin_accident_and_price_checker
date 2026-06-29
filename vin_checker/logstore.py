@@ -14,7 +14,7 @@ from pathlib import Path
 LOG_PATH = Path(__file__).resolve().parent.parent / "automation_html" / "checks_log.jsonl"
 
 # Lower = better. Drives the "which to see first" ordering.
-_VERDICT_RANK = {"✅ LOOKS CLEAN": 0, "⚠️  CAUTION": 1, "❌ HARD PASS": 2}
+_VERDICT_RANK = {"✅ LOOKS CLEAN": 0, "❓ UNVERIFIED": 1, "⚠️ CAUTION": 2, "❌ HARD PASS": 3}
 
 
 def save_check(rec: dict) -> None:
