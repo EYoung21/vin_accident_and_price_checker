@@ -95,7 +95,9 @@ def _read_block(prompt: str) -> str:
 
     @kb.add(Keys.BracketedPaste)  # collapse multi-line pastes, Claude-Code-style
     def _(event):
-        data = event.data
+        # Pasted text may use \r or \r\n as line separators — normalize so the line
+        # count is right and the stored text has real newlines.
+        data = event.data.replace("\r\n", "\n").replace("\r", "\n")
         if "\n" not in data and len(data) <= 80:
             event.current_buffer.insert_text(data)  # small paste → inline
             return
