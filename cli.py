@@ -28,6 +28,7 @@ from vin_checker.report import (
     render_draft,
     render_negotiation,
     render_offer_private,
+    render_proscons,
     render_text,
     set_color,
     verdict,
@@ -210,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
         print(render_json(report))
         return 0
 
+    from vin_checker.assess import pros_cons
+    pros, cons = pros_cons(report, context, use_llm=not args.no_llm, progress=prog)
+
     neg = None
     if context and not args.no_llm:
         from vin_checker.negotiate import negotiate_offer
@@ -218,12 +222,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.plain:
         print(render_text(report))
+        print(render_proscons(pros, cons))
         if neg is not None:
             print(render_negotiation(neg))
     else:
-        # Shareable card first (screenshot this for the seller), then a ready-to-send
-        # draft reply, then your private offer cheat-sheet (don't send that one).
+        # Shareable card first (screenshot this for the seller), then your pros/cons,
+        # a ready-to-send draft reply, then your private offer (don't send that one).
         print("\n" + render_card(report))
+        print(render_proscons(pros, cons))
         if neg is not None:
             print(render_draft(neg))
             print(render_offer_private(neg))

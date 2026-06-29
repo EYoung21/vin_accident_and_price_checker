@@ -325,6 +325,26 @@ def render_card(r: VehicleReport) -> str:
     return "\n".join(L)
 
 
+def render_proscons(pros: list[str], cons: list[str]) -> str:
+    """Buyer-facing decision aid (your call) — not part of the shareable card."""
+    if not pros and not cons:
+        return ""
+    L = ["", paint("⚖️  PROS / CONS  (your call)", BOLD, CYAN)]
+    if pros:
+        L.append("   " + paint("PROS", BOLD, GRN))
+        for x in pros:
+            wrapped = textwrap.wrap(x, _CARD_W)
+            for j, line in enumerate(wrapped):
+                L.append("   " + (paint("+ ", GRN, BOLD) if j == 0 else "  ") + line)
+    if cons:
+        L.append("   " + paint("CONS", BOLD, RED))
+        for x in cons:
+            wrapped = textwrap.wrap(x, _CARD_W)
+            for j, line in enumerate(wrapped):
+                L.append("   " + (paint("- ", RED, BOLD) if j == 0 else "  ") + line)
+    return "\n".join(L)
+
+
 def render_draft(neg) -> str:
     """Seller-facing message — safe to send (no AI/offer-math mentioned)."""
     if neg is None or not getattr(neg, "draft_message", None):
