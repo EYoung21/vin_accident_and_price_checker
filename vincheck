@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# One-command launcher for the VIN checker.
+# Sets up the Python virtualenv on first run, then runs the tool.
+# Any arguments are passed through (e.g. ./vincheck --vin XXXX --json).
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -x "$DIR/.venv/bin/python" ]; then
+  echo "First run — setting up the environment (one time, ~30s)..."
+  python3 -m venv "$DIR/.venv"
+  "$DIR/.venv/bin/pip" install -q --upgrade pip
+  "$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"
+  echo "Done."
+  echo
+fi
+
+exec "$DIR/.venv/bin/python" "$DIR/cli.py" "$@"

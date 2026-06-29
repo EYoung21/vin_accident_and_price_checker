@@ -92,6 +92,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.context:
         context = args.context.read_text(errors="ignore")
 
+    # If you skipped the mileage prompt but it's in the pasted listing, pull it out
+    # (regex, no LLM) so the card header, comps, and odometer-rollback check work.
+    if mileage is None and context:
+        from vin_checker.listing_parse import parse_listing
+
+        mileage = parse_listing(context, use_llm=False).mileage
+
     try:
         report = build_report(
             vin, mileage=mileage,
