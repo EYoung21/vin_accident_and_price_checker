@@ -60,6 +60,11 @@ def _sorted() -> list[dict]:
     return rows
 
 
+def ranked() -> list[dict]:
+    """Public: logged cars, best-to-worst (verdict, then deal, then distance)."""
+    return _sorted()
+
+
 def _write_markdown() -> None:
     rows = _sorted()
     lines = ["# Cars checked", "",

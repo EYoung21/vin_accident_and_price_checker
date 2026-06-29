@@ -100,9 +100,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.compare is not None:
-        from vin_checker.compare import compare_cars
+        from vin_checker.compare import run as run_compare
 
-        print(compare_cars(vins=args.compare or None, use_llm=not args.no_llm))
+        run_compare(vins=args.compare or None, use_llm=not args.no_llm)
         return 0
 
     context = ""

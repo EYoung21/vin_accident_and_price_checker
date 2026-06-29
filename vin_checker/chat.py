@@ -93,18 +93,18 @@ def _briefing(report, research, neg, pros, cons, context) -> str:
     return "\n".join(L)
 
 
-def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="") -> None:
+def converse(system: str, intro: str) -> None:
+    """Reusable chat loop (web-search enabled, paste-aware, formatted). Interactive
+    only. Used for both the single-car follow-up and the comparison follow-up."""
     if not (sys.stdin.isatty() and llm.available()):
         return
-    system = _SYSTEM_PREFIX + _briefing(report, research, neg, pros or [], cons or [], context)
     from .promptio import read_block
-    print("\n💬 Chat about this car — specs, problems, negotiation. It can search the "
-          "web. Press Enter on a blank line (or 'q') to quit.")
+    print(intro)
     messages: list[dict] = []
     while True:
         print()
         q = read_block(ps="you> ", show_hint=False).strip()  # paste-aware: a pasted
-        if not q or q.lower() in ("q", "quit", "exit"):       # thread = ONE message
+        if not q or q.lower() in ("q", "quit", "exit"):       # block = ONE message
             break
         messages.append({"role": "user", "content": q})
         print(paint("  … thinking", DIM), file=sys.stderr, flush=True)
@@ -121,3 +121,9 @@ def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="")
         messages.append({"role": "assistant", "content": ans})
         print(paint("  " + "─" * 58, DIM))
         print(_fmt(ans))
+
+
+def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="") -> None:
+    system = _SYSTEM_PREFIX + _briefing(report, research, neg, pros or [], cons or [], context)
+    converse(system, "\n💬 Chat about this car — specs, problems, negotiation. It can "
+                     "search the web. Press Enter on a blank line (or 'q') to quit.")
