@@ -64,7 +64,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def _interactive() -> tuple[str, int | None, str, int | None]:
+def _interactive() -> tuple[str, int | None, str]:
     print("=== VIN checker — paste a car you're looking at ===\n")
     # Paste FIRST (this is the collapse-aware block), then pull VIN + mileage out of
     # it. This way there's one place to paste and it always behaves like Claude Code.
@@ -87,13 +87,7 @@ def _interactive() -> tuple[str, int | None, str, int | None]:
     if mileage is None:
         raw = input("Mileage (optional, Enter to skip): ").strip().replace(",", "")
         mileage = int(raw) if raw.isdigit() else None
-
-    # Did you settle a price over text/call that isn't in the paste? Stating it here
-    # locks the deal so the draft confirms it instead of re-opening an offer.
-    raw = input("Already agreed a price off-thread (text/call)? $ (Enter to skip): ") \
-        .strip().replace(",", "").replace("$", "")
-    agreed = int(raw) if raw.isdigit() else None
-    return vin, mileage, context, agreed
+    return vin, mileage, context
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -115,11 +109,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     context = ""
-    agreed = args.agreed
+    agreed = args.agreed  # off-thread override (flag only); in-paste deals auto-detect
     if not args.vin and not args.listing:
-        vin, mileage, context, agreed_in = _interactive()
+        vin, mileage, context = _interactive()
         mileage = args.mileage or mileage
-        agreed = args.agreed or agreed_in
     elif args.listing:
         context = args.listing.read_text(errors="ignore")
         from vin_checker.listing_parse import parse_listing
