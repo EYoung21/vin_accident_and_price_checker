@@ -1,0 +1,24 @@
+# vin_checker configuration (non-secret settings).
+# Copy this to `config.toml` and edit for your setup. Secrets (API keys, AWS
+# creds) do NOT go here — put those in `.env`.
+
+[home]
+# Where you are — used for comps search + distance-to-you on each car.
+zip  = "37377"
+name = "Signal Mountain, TN"
+lat  = 35.2120
+lon  = -85.3436
+
+[search]
+radius_miles = 100          # comps search radius around your zip
+
+[model]
+# Bedrock model id for the LLM features (offer, research, pros/cons, chat).
+# The BEDROCK_MODEL_ID env var overrides this if set.
+bedrock_model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+[log]
+dir = "car_log"             # where ran cars are logged (top-level, accessible)
+
+[net]
+http_timeout = 20

@@ -32,16 +32,27 @@ for a car you're serious about.
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # add MARKETCHECK_API_KEY (free) for value data
+cp config.example.toml config.toml   # set your home location, radius, model, log dir
+cp .env.example .env                  # secrets only: API keys + AWS creds
 ```
+
+`config.toml` (non-secret, git-ignored) holds your home ZIP/lat-lon (for comps +
+distance-to-you), search radius, Bedrock model, and log dir. Secrets stay in `.env`.
 
 ## Usage
 
 ```bash
-python cli.py --vin 1HGCR2F3XFA027534 --mileage 95000
-python cli.py --vin 1HGCR2F3XFA027534 --json
-python cli.py --listing listing.txt          # paste a Marketplace listing into a file
+vincheck                       # interactive: paste the listing+chat, it does the rest
+vincheck --list                # your backlog of checked cars, ranked best-to-worst
+vincheck --compare             # LLM compares all checked cars (or: --compare VIN1 VIN2)
+python cli.py --vin <VIN> --json
 ```
+
+Every run is logged to `car_log/` (top level): `log.jsonl` + a readable `cars.md`
+table (verdict, value, offer, distance-to-you, location). A run gives you: a
+shareable card, distance from home, web-grounded specs/0-60/problems + an in-person
+inspection checklist, pros/cons, a draft reply, your private offer, then a
+web-searching follow-up chat.
 
 ## The two sites that need a captured HTML sample
 

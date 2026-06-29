@@ -1,38 +1,48 @@
-"""Append-only log of cars you've checked, plus a ranked comparison.
+"""Backlog of cars you've run.
 
-Lives in automation_html/ (git-ignored → only ever in your PRIVATE repo) because
-it's your personal shopping history. `vincheck --list` ranks saved cars so you
-know which to go see first: clean titles first, then best deal vs. market.
+Logs to a top-level, easy-to-find folder (default `car_log/`, set in config.toml):
+  - log.jsonl : structured, one line per check (source of truth for compare/list)
+  - cars.md   : human-readable table you can open and skim
+
+It's git-ignored from the public repo and synced to your private one.
 """
 
 from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
 
-LOG_PATH = Path(__file__).resolve().parent.parent / "automation_html" / "checks_log.jsonl"
+from .config import CONFIG
 
-# Lower = better. Drives the "which to see first" ordering.
 _VERDICT_RANK = {"✅ LOOKS CLEAN": 0, "❓ UNVERIFIED": 1, "⚠️ CAUTION": 2, "❌ HARD PASS": 3}
+
+
+def _dir():
+    d = CONFIG.log_path
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _log_file():
+    return _dir() / "log.jsonl"
 
 
 def save_check(rec: dict) -> None:
     rec = {"ts": datetime.now().isoformat(timespec="seconds"), **rec}
     try:
-        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_PATH.open("a") as f:
+        with _log_file().open("a") as f:
             f.write(json.dumps(rec) + "\n")
+        _write_markdown()
     except OSError:
-        pass  # logging is best-effort
+        pass
 
 
 def load_checks() -> list[dict]:
-    if not LOG_PATH.exists():
+    path = _log_file()
+    if not path.exists():
         return []
-    rows = [json.loads(line) for line in LOG_PATH.read_text().splitlines() if line.strip()]
-    # keep only the most recent check per VIN
-    latest: dict[str, dict] = {}
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    latest: dict[str, dict] = {}  # most recent check per VIN
     for r in rows:
         latest[r.get("vin", "")] = r
     return list(latest.values())
@@ -43,21 +53,45 @@ def _deal(rec: dict) -> int | None:
     return (med - offer) if (med and offer) else None
 
 
-def render_log() -> str:
+def _sorted() -> list[dict]:
     rows = load_checks()
+    rows.sort(key=lambda r: (_VERDICT_RANK.get(r.get("verdict", ""), 1),
+                             -((_deal(r) or -10**9)), r.get("distance_mi") or 10**9))
+    return rows
+
+
+def _write_markdown() -> None:
+    rows = _sorted()
+    lines = ["# Cars checked", "",
+             "| Verdict | Vehicle | Miles | Market | Offer/Deal | Distance | Location | VIN | When |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        med = f"${r['value_median']:,}" if r.get("value_median") else "—"
+        offer = f"${r['offer']:,}" if r.get("offer") else "—"
+        dist = f"{r['distance_mi']} mi" if r.get("distance_mi") else "—"
+        miles = f"{r['mileage']:,}" if r.get("mileage") else "—"
+        lines.append(f"| {r.get('verdict','?')} | {r.get('vehicle','')} | {miles} | {med} "
+                     f"| {offer} | {dist} | {r.get('location','—') or '—'} | {r.get('vin','')} "
+                     f"| {r.get('ts','')[:10]} |")
+    try:
+        (_dir() / "cars.md").write_text("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
+def render_log() -> str:
+    rows = _sorted()
     if not rows:
         return "No cars checked yet. Run `vincheck` on a car first."
-
-    def sort_key(r):
-        return (_VERDICT_RANK.get(r.get("verdict", ""), 1), -((_deal(r) or -10**9)))
-
-    rows.sort(key=sort_key)
     out = ["", "CARS YOU'VE CHECKED  (best to see first → worst)", "=" * 64]
     for r in rows:
         med = f"${r['value_median']:,}" if r.get("value_median") else "n/a"
         offer = f"${r['offer']:,}" if r.get("offer") else "n/a"
         delta = _deal(r)
         deal = f" ({'+' if delta and delta > 0 else ''}{delta:,} vs mkt)" if delta else ""
+        dist = f"  ·  {r['distance_mi']} mi away" if r.get("distance_mi") else ""
         out.append(f"{r.get('verdict', '?'):<14} {r.get('vehicle', r.get('vin', '')):<34}")
-        out.append(f"   offer {offer}{deal}  ·  market {med}  ·  {r.get('vin', '')}")
+        out.append(f"   offer {offer}{deal}  ·  market {med}{dist}"
+                   + (f"  ·  {r['location']}" if r.get("location") else ""))
+    out.append(f"\nfull log: {_dir()/'cars.md'}")
     return "\n".join(out)

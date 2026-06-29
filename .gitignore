@@ -1,8 +1,12 @@
 # Secrets and local env — never in the public (non-PII) repo.
 .env
 
-# Captured vehicle HTML / specific-car data — PII repo only (force-added there).
+# Your local config (location etc.) — public repo ships config.example.toml only.
+config.toml
+
+# Captured vehicle HTML + your ran-cars log — PII repo only (force-added there).
 automation_html/
+car_log/
 
 # API response cache (rate-limit protection)
 .cache/

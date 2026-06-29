@@ -331,6 +331,17 @@ def render_card(r: VehicleReport) -> str:
     return "\n".join(L)
 
 
+def render_distance(dist) -> str:
+    if not dist:
+        return ""
+    miles = dist.get("drive_mi") or dist.get("straight_mi")
+    kind = "drive" if dist.get("drive_mi") else "straight-line"
+    t = dist.get("drive_min")
+    when = f", ~{t // 60}h{t % 60:02d}" if t else ""
+    return "\n" + paint(f"📍 ~{miles} mi {kind} from {CONFIG.home_name}  ·  "
+                        f"{dist.get('place','')}{when}", BOLD, CYAN)
+
+
 def render_research(res) -> str:
     """Web-grounded specs/0-60/audio/problems + an in-person inspection checklist."""
     if res is None or not getattr(res, "available", False):

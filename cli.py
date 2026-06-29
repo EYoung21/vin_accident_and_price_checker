@@ -27,6 +27,7 @@ from vin_checker.report import (
     render_diagnostics,
     render_draft,
     render_negotiation,
+    render_distance,
     render_offer_private,
     render_proscons,
     render_research,
@@ -44,6 +45,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--context", type=Path, help="text file: listing + seller chat → offer")
     p.add_argument("--list", action="store_true", dest="list_checks",
                    help="show all cars you've checked, ranked best-to-worst")
+    p.add_argument("--compare", nargs="*", metavar="VIN", default=None,
+                   help="LLM compares cars you've checked (all by default; or list "
+                        "VINs to compare just those, e.g. --compare WAUA.. WAUB..)")
     p.add_argument("--json", action="store_true", help="emit JSON instead of a card")
     p.add_argument("--plain", action="store_true", help="plain text instead of the card")
     p.add_argument("--no-color", action="store_true", help="disable ANSI colors")
@@ -93,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
         from vin_checker.logstore import render_log
 
         print(render_log())
+        return 0
+
+    if args.compare is not None:
+        from vin_checker.compare import compare_cars
+
+        print(compare_cars(vins=args.compare or None, use_llm=not args.no_llm))
         return 0
 
     context = ""
@@ -166,6 +176,16 @@ def main(argv: list[str] | None = None) -> int:
     res = research_car(report.decoded, report.mileage, use_llm=not args.no_llm, progress=prog)
     pros, cons = pros_cons(report, context, use_llm=not args.no_llm, progress=prog)
 
+    # Seller location → distance from home (config.toml).
+    dist = None
+    if context and not args.no_llm:
+        from vin_checker import geo
+
+        if (loc := geo.extract_location(context)):
+            if prog:
+                prog(f"distance from {loc}")
+            dist = geo.distance(loc)
+
     neg = None
     if context and not args.no_llm:
         from vin_checker.negotiate import negotiate_offer
@@ -174,14 +194,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.plain:
         print(render_text(report))
+        print(render_distance(dist))
         print(render_research(res))
         print(render_proscons(pros, cons))
         if neg is not None:
             print(render_negotiation(neg))
     else:
-        # Card (screenshot for seller) → web research + inspection checklist →
+        # Card (screenshot for seller) → distance → web research + inspection →
         # pros/cons → ready-to-send draft → your private offer (don't send that one).
         print("\n" + render_card(report))
+        print(render_distance(dist))
         print(render_research(res))
         print(render_proscons(pros, cons))
         if neg is not None:
@@ -201,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
         "mileage": report.mileage, "verdict": banner,
         "value_median": report.comps.median,
         "offer": getattr(neg, "final_offer", None) if neg else None,
+        "deal_agreed": getattr(neg, "deal_agreed", False) if neg else False,
+        "location": (dist or {}).get("place"),
+        "distance_mi": (dist or {}).get("drive_mi") or (dist or {}).get("straight_mi"),
+        "drive_min": (dist or {}).get("drive_min"),
     })
     return 0
 
