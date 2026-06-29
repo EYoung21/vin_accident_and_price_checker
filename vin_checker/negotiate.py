@@ -52,7 +52,12 @@ def _market_summary(report: VehicleReport) -> str:
 _SYSTEM = (
     "You are a shrewd, realistic used-car buyer. Read the ENTIRE conversation "
     "between ME (the buyer) and THIS seller and work out the deal state:\n"
-    "- asking_price: the seller's current asking price for THIS car.\n"
+    "- asking_price: the seller's CURRENT asking price for THIS car. If "
+    "CURRENT_ASKING_PRICE is given below, that is authoritative — use it. On Facebook "
+    "Marketplace the live price is the headline shown by 'Listed X ago'; a HIGHER price "
+    "written inside the seller's description is usually the ORIGINAL/stale price (e.g. a "
+    "seller whose price auto-drops over time) — never treat that higher number as the "
+    "current ask.\n"
     "- my_last_offer: the most recent price I (the buyer) proposed. Read the thread IN "
     "ORDER: only what the seller says AFTER my latest price bears on accepting it — a "
     "seller line that appears BEFORE my price cannot be a rejection or counter of it "
@@ -84,8 +89,10 @@ _SYSTEM = (
     "EXACTLY that number. Never negotiate against yourself or raise it.\n"
     "- NEVER recommend more than asking_price. NEVER raise my own previous offer "
     "unless the seller explicitly rejected it AND countered with a higher number.\n"
-    "- If no price has been discussed yet: open below asking, using comps/history "
-    "(salvage/title/odometer/repairs) as leverage.\n"
+    "- If no price has been discussed yet: open strictly BELOW the current asking "
+    "price (never equal to or above it), using comps/history (salvage/title/odometer/"
+    "repairs) as leverage. If the seller auto-reduces the price over time, you have "
+    "extra leverage to go lower.\n"
     "ALSO detect CONSENSUS: if a final price is already mutually agreed — both sides "
     "aligned on a number, or you're now just arranging the handoff (pickup/payment/"
     "time) — set deal_agreed=true and agreed_price to that number, and do NOT propose "
@@ -108,7 +115,7 @@ _CTX_LIMIT = 16000
 
 
 def negotiate_offer(
-    report: VehicleReport, context: str, progress=None
+    report: VehicleReport, context: str, listing_price: int | None = None, progress=None
 ) -> NegotiationResult:
     p = progress or (lambda *_: None)
     result = NegotiationResult()
@@ -118,7 +125,10 @@ def negotiate_offer(
         return result
 
     p("working out an offer")
-    user = (f"MARKET & VEHICLE:\n{_market_summary(report)}\n\n"
+    ask_note = (f"\nCURRENT_ASKING_PRICE={listing_price}  (authoritative live price; "
+                f"ignore any higher/original price in the seller's description)"
+                if listing_price else "")
+    user = (f"MARKET & VEHICLE:\n{_market_summary(report)}{ask_note}\n\n"
             f"CONVERSATION / CONTEXT:\n{context[:_CTX_LIMIT]}")
     data, _ = llm.chat_json(_SYSTEM, [{"role": "user", "content": user}])
     if not data or (offer := _int(data.get("offer"))) is None:
@@ -126,7 +136,7 @@ def negotiate_offer(
         return result
 
     # Deterministic guardrails on top of the model's number:
-    asking = _int(data.get("asking_price"))
+    asking = listing_price or _int(data.get("asking_price"))  # live headline wins
     my_last = _int(data.get("my_last_offer"))
     accepted = bool(data.get("seller_accepted"))
     agreed = bool(data.get("deal_agreed")) or accepted
@@ -134,6 +144,9 @@ def negotiate_offer(
     if agreed:
         # Consensus reached — lock the agreed number, don't re-offer.
         offer = _int(data.get("agreed_price")) or my_last or offer
+    elif asking and offer >= asking and not my_last:
+        # Opening cold: must land BELOW the current ask, not at/above it.
+        offer = max(1, int(round(asking * 0.9 / 50)) * 50)
     elif asking and offer > asking:
         offer = asking         # never offer above the seller's asking price
 
@@ -143,12 +156,12 @@ def negotiate_offer(
     result.current_state = data.get("current_state") or None
 
     p("confirming the deal" if agreed else "drafting a reply to the seller")
-    result.draft_message = _draft_reply(report, context, result.final_offer, agreed)
+    result.draft_message = _draft_reply(report, context, result.final_offer, agreed, asking)
     return result
 
 
 def _draft_reply(report: VehicleReport, context: str, offer: int,
-                 deal_agreed: bool = False) -> str | None:
+                 deal_agreed: bool = False, asking: int | None = None) -> str | None:
     """A short, ready-to-send message. If the deal's already agreed, confirm and move
     to logistics; otherwise continue the negotiation."""
     if deal_agreed:
@@ -174,7 +187,9 @@ def _draft_reply(report: VehicleReport, context: str, offer: int,
         "from that. If NO price has been discussed yet, don't lowball out of nowhere — "
         "show genuine interest and raise the number gently, e.g. 'would you do $X?', "
         "using any noted issues (repairs, mileage, history) as soft justification. "
-        f"Land on ${offer:,}. Keep it 2-4 sentences. "
+        + (f"The seller's CURRENT asking price is ${asking:,} — reference THAT, never a "
+           f"higher/older price from the description. " if asking else "")
+        + f"Land on ${offer:,}. Keep it 2-4 sentences. "
         'Return ONLY JSON: {"message": str}.'
     )
     user = f"FINDINGS:\n{_market_summary(report)}\n\nCONVERSATION SO FAR:\n{context[:_CTX_LIMIT]}"

@@ -189,8 +189,10 @@ def main(argv: list[str] | None = None) -> int:
     neg = None
     if context and not args.no_llm:
         from vin_checker.negotiate import negotiate_offer
+        from vin_checker.listing_parse import current_listing_price
 
-        neg = negotiate_offer(report, context, progress=prog)
+        neg = negotiate_offer(report, context,
+                              listing_price=current_listing_price(context), progress=prog)
 
     if args.plain:
         print(render_text(report))

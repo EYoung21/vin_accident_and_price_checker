@@ -22,6 +22,18 @@ _MILEAGE = re.compile(
     re.IGNORECASE,
 )
 _PRICE = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})+|\d{3,6})")
+# The LIVE Marketplace price is the headline shown right before "Listed ... ago".
+# Prices written inside the seller's description are often the ORIGINAL/stale price.
+_HEADLINE_PRICE = re.compile(
+    r"\$\s?(\d{1,3}(?:,\d{3})+|\d{3,6})\s*\n?\s*Listed\b", re.IGNORECASE)
+
+
+def current_listing_price(text: str) -> int | None:
+    """The seller's CURRENT asking price: the Marketplace headline ('$X … Listed X
+    ago') if present, else the first price in the paste (the headline is usually
+    first). Deliberately ignores higher prices buried in the description."""
+    m = _HEADLINE_PRICE.search(text) or _PRICE.search(text)
+    return int(m.group(1).replace(",", "")) if m else None
 
 
 @dataclass
