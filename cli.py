@@ -115,10 +115,10 @@ def _read_block(prompt: str) -> str:
 def _interactive() -> tuple[str, int | None, str]:
     print("=== VIN checker — paste a car you're looking at ===\n")
     while True:
-        vin = input("VIN: ").strip().upper()
-        if is_valid_vin(vin):
+        vin = input("VIN (or press Enter to pull it from your paste): ").strip().upper()
+        if not vin or is_valid_vin(vin):
             break
-        print("  ↳ that's not a valid 17-char VIN, try again")
+        print("  ↳ not a valid 17-char VIN — re-enter, or Enter to pull from the paste")
     raw_mi = input("Mileage (optional, Enter to skip): ").strip().replace(",", "")
     mileage = int(raw_mi) if raw_mi.isdigit() else None
     context = _read_block("\nPaste the listing — ask price, description, your chat with the seller:")
@@ -151,12 +151,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.context:
         context = args.context.read_text(errors="ignore")
 
-    # If you skipped the mileage prompt but it's in the pasted listing, pull it out
+    # Skipped the VIN and/or mileage prompt? Pull them from the pasted text
     # (regex, no LLM) so the card header, comps, and odometer-rollback check work.
-    if mileage is None and context:
+    if context and (not vin or mileage is None):
         from vin_checker.listing_parse import parse_listing
 
-        mileage = parse_listing(context, use_llm=False).mileage
+        parsed = parse_listing(context, use_llm=False)
+        vin = vin or (parsed.vin or "")
+        if mileage is None:
+            mileage = parsed.mileage
+    if not vin:
+        sys.exit("No VIN entered and none found in your paste — re-run and enter a VIN.")
 
     try:
         report = build_report(
