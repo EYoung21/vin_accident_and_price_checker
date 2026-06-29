@@ -29,6 +29,7 @@ from vin_checker.report import (
     render_negotiation,
     render_offer_private,
     render_text,
+    set_color,
     verdict,
 )
 
@@ -43,6 +44,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="show all cars you've checked, ranked best-to-worst")
     p.add_argument("--json", action="store_true", help="emit JSON instead of a card")
     p.add_argument("--plain", action="store_true", help="plain text instead of the card")
+    p.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     p.add_argument("--no-llm", action="store_true", help="disable LLM parsing + offer")
     p.add_argument("--debug", action="store_true",
                    help="print diagnostics (comp filtering, why history is unverified, errors)")
@@ -132,6 +134,9 @@ def _interactive() -> tuple[str, int | None, str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
+
+    # Color on only for an interactive terminal (keeps pipes/screenshots-to-file clean).
+    set_color(sys.stdout.isatty() and not args.no_color)
 
     if args.list_checks:
         from vin_checker.logstore import render_log

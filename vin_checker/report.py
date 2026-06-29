@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import textwrap
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -166,23 +167,67 @@ def render_negotiation(neg) -> str:
 # Screenshot-able "card" view (KBB-style), all ASCII for crisp alignment.
 # --------------------------------------------------------------------------- #
 _CARD_W = 60  # inner width
-_BADGE = {"clean": "[OK] CLEAN", "flagged": "[!] FLAGGED", "inconclusive": "[?] UNKNOWN"}
+
+# --- ANSI color (auto-disabled when output isn't a TTY; see set_color) --------
+_COLOR = True
+RESET, BOLD, DIM = "\x1b[0m", "\x1b[1m", "\x1b[2m"
+RED, GRN, YEL, CYAN, WHITE = "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[36m", "\x1b[97m"
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def set_color(enabled: bool) -> None:
+    global _COLOR
+    _COLOR = enabled
+
+
+def paint(s: str, *codes: str) -> str:
+    return ("".join(codes) + s + RESET) if (_COLOR and codes) else s
+
+
+def _vis(s: str) -> str:  # visible length, ignoring color codes (for padding)
+    return _ANSI_RE.sub("", s)
 
 
 def _row(text: str = "") -> str:
-    return "│ " + text[: _CARD_W].ljust(_CARD_W) + " │"
+    vis = _vis(text)
+    if len(vis) > _CARD_W:  # overflow: drop color and clip
+        text = vis = vis[:_CARD_W]
+    bar = paint("│", DIM)
+    return f"{bar} {text}{' ' * (_CARD_W - len(vis))} {bar}"
 
 
 def _rule(left="├", right="┤") -> str:
-    return left + "─" * (_CARD_W + 2) + right
+    return paint(left + "─" * (_CARD_W + 2) + right, DIM)
+
+
+_BADGE_FULL = {"clean": (GRN, BOLD), "flagged": (RED, BOLD), "inconclusive": (DIM,)}
+_BADGE_TEXT = {"clean": "[OK] CLEAN", "flagged": "[!] FLAGGED", "inconclusive": "[?] UNKNOWN"}
+
+
+def _badge(status: str) -> str:
+    return paint(_BADGE_TEXT[status], *_BADGE_FULL[status])
+
+
+def _badge_short(status: str) -> str:
+    short = {"clean": "[OK]", "flagged": "[!]", "inconclusive": "[?]"}[status]
+    return paint(short, *_BADGE_FULL[status])
 
 
 def _gauge(low: int, median: int, high: int, width: int = 30) -> str:
     span = high - low
-    pos = round((median - low) / span * (width - 1)) if span > 0 else 0
-    pos = max(0, min(width - 1, pos))
-    bar = "".join("O" if i == pos else "=" for i in range(width))
-    return f"${low:,} |{bar}| ${high:,}"
+    pos = max(0, min(width - 1, round((median - low) / span * (width - 1)) if span > 0 else 0))
+    seg = max(1, width // 3)
+    cells = []
+    for i in range(width):
+        if i == pos:
+            cells.append(paint("O", BOLD, WHITE))
+        elif i < seg:
+            cells.append(paint("=", RED))       # low / underpriced
+        elif i < 2 * seg:
+            cells.append(paint("=", GRN))       # fair-value sweet spot
+        else:
+            cells.append(paint("=", DIM))       # high / overpriced
+    return f"{paint('$' + format(low, ','), DIM)} |{''.join(cells)}| {paint('$' + format(high, ','), DIM)}"
 
 
 # Title brands that hurt insurability / financing / resale (your dad's rule).
@@ -221,55 +266,59 @@ def render_card(r: VehicleReport) -> str:
     L = []
     # Verdict banner ABOVE the box (emoji-safe; instantly readable in a screenshot)
     banner, reason = verdict(r)
+    color = (RED if "HARD PASS" in banner else YEL if "CAUTION" in banner
+             else GRN if "LOOKS CLEAN" in banner else DIM)
     L.append("")
-    L.append(f"  {banner}")
+    L.append("  " + paint(banner, color, BOLD))
     for line in textwrap.wrap(reason, _CARD_W):
-        L.append(f"  {line}")
+        L.append("  " + paint(line, DIM))
     L.append(_rule("┌", "┐"))
-    L.append(_row(d.full_name or d.vin))
+    L.append(_row(paint(d.full_name or d.vin, BOLD)))
     sub = "   ".join(p for p in (d.vin, f"{r.mileage:,} mi" if r.mileage else "", d.engine) if p)
-    L.append(_row(sub))
+    L.append(_row(paint(sub, DIM)))
 
     # Value
     L.append(_rule())
-    L.append(_row("PRIVATE-PARTY VALUE"))
+    L.append(_row(paint("PRIVATE-PARTY VALUE", BOLD, CYAN)))
     if c.count and c.low and c.high:
         L.append(_row("  " + _gauge(c.low, c.median, c.high)))
-        L.append(_row(f"          median  {_money(c.median)}   ·   {c.count} listings "
-                      f"near {CONFIG.home_zip}"))
+        L.append(_row(f"          median  {paint(_money(c.median), GRN, BOLD)}   ·   "
+                      f"{c.count} listings near {CONFIG.home_zip}"))
     else:
-        L.append(_row("  no live comps yet — add AUTODEV_API_KEY (free) for a range"))
+        L.append(_row(paint("  no live comps yet — add AUTODEV_API_KEY (free) for a range", DIM)))
 
     # History + safety
     L.append(_rule())
-    L.append(_row(f"HISTORY      {_BADGE[h.overall]}"
-                  + (f"   {', '.join(h.title_brands)}" if h.title_brands else "")))
-    L.append(_row(f"  title(NMVTIS) {_BADGE[h.title_status].split(']')[0]}]"
-                  f"    salvage-auction {_BADGE[h.auction_status].split(']')[0]}]"))
+    L.append(_row(paint("HISTORY", BOLD, CYAN) + f"      {_badge(h.overall)}"
+                  + (f"   {paint(', '.join(h.title_brands), RED)}" if h.title_brands else "")))
+    L.append(_row(f"  title(NMVTIS) {_badge_short(h.title_status)}"
+                  f"    salvage-auction {_badge_short(h.auction_status)}"))
     for line in textwrap.wrap(" · ".join(h.auction_details), _CARD_W - 2)[:3]:
-        L.append(_row("  " + line))
+        L.append(_row("  " + paint(line, RED)))
     safety = rc.error or (f"{rc.count} open recalls"
                           + (f",  {rc.complaint_count} complaints" if rc.complaint_count else ""))
+    safety_row = paint("SAFETY", BOLD, CYAN) + "       " + safety
     if r.safety and r.safety.overall:
-        safety += f"  ·  NCAP {r.safety.overall}/5"
-    L.append(_row(f"SAFETY       {safety}"))
+        safety_row += "  ·  " + paint(f"NCAP {r.safety.overall}/5", GRN)
+    L.append(_row(safety_row))
 
     # Watch-outs (deterministic, fact-based — safe to show a seller)
     watch = _watchouts(r)
     if watch:
         L.append(_rule())
-        L.append(_row("WATCH-OUTS"))
+        L.append(_row(paint("WATCH-OUTS", BOLD, YEL)))
         for w in watch:
             wrapped = textwrap.wrap(w, _CARD_W - 4)
             for j, line in enumerate(wrapped):
-                L.append(_row(("  ! " if j == 0 else "    ") + line))
+                prefix = paint("  ! ", RED, BOLD) if j == 0 else "    "
+                L.append(_row(prefix + paint(line, YEL)))
 
     # Sources — so the number's credibility is the public record, not the tool
     L.append(_rule())
-    L.append(_row("SOURCES (anyone can look these up by VIN)"))
+    L.append(_row(paint("SOURCES (anyone can look these up by VIN)", BOLD, CYAN)))
     for s in _sources(r):
         for line in textwrap.wrap(s, _CARD_W - 4):
-            L.append(_row("  " + line))
+            L.append(_row(paint("  " + line, DIM)))
     L.append(_rule("└", "┘"))
     return "\n".join(L)
 
@@ -278,7 +327,8 @@ def render_draft(neg) -> str:
     """Seller-facing message — safe to send (no AI/offer-math mentioned)."""
     if neg is None or not getattr(neg, "draft_message", None):
         return ""
-    L = ["", "✉️  DRAFT MESSAGE TO SELLER  (review/tweak, then send)", "   " + "-" * 56]
+    L = ["", paint("✉️  DRAFT MESSAGE TO SELLER  (review/tweak, then send)", BOLD, CYAN),
+         "   " + paint("-" * 56, DIM)]
     for line in textwrap.wrap(neg.draft_message, _CARD_W + 2):
         L.append("   " + line)
     return "\n".join(L)
@@ -288,11 +338,11 @@ def render_offer_private(neg) -> str:
     """Your eyes only — keep this OUT of any screenshot you send the seller."""
     if neg is None or not getattr(neg, "final_offer", None):
         return ""
-    L = ["", "🔒 PRIVATE — your offer cheat-sheet (do NOT screenshot/send this)"]
+    L = ["", paint("🔒 PRIVATE — your offer cheat-sheet (do NOT screenshot/send this)", DIM)]
     for i, rnd in enumerate(neg.rounds):
         tag = "hold" if rnd["held"] else f"round {i + 1}"
         L.append(f"   [{tag}] {_money(rnd['offer'])} — {rnd['rationale']}")
-    L.append(f"\n   >> OFFER THIS: {_money(neg.final_offer)}")
+    L.append("\n   " + paint(f">> OFFER THIS: {_money(neg.final_offer)}", GRN, BOLD))
     return "\n".join(L)
 
 

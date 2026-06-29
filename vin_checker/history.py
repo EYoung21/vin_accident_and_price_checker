@@ -152,10 +152,15 @@ def _parse_statvin(html: str, report: HistoryReport, vin: str) -> None:
             bid = re.sub(r"[ ,]", "", fb.group(1)).rstrip(".")
             sold = " (SOLD)" if "has been sold" in text.lower() else ""
             report.auction_details.append(f"Final bid: ${bid}{sold}")
+    elif "vin-decoding" in html or "VIN Decoder" in text:
+        # stat.vin routes VINs that HAVE a Copart/IAAI record to /cars/<VIN>; landing
+        # on the decoder page means there's no auction/salvage record for this VIN.
+        report.auction_status = "clean"
+        report.notes.append("stat.vin: no Copart/IAAI auction record for this VIN")
     else:
-        # VIN present but no lot fields: can't confirm a clean record from this page.
+        # VIN present but no lot fields and not clearly the decoder page → may be loading.
         report.auction_status = "inconclusive"
-        report.notes.append("stat.vin: no auction lot fields found for this VIN")
+        report.notes.append("stat.vin: no auction lot fields found (page may be loading)")
 
 
 # --------------------------------------------------------------------------- #
