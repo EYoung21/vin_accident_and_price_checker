@@ -57,10 +57,16 @@ _SYSTEM = (
     "build from that number, do NOT restart from the original asking price. Use the "
     "market comps and history findings (salvage/title/odometer/needed repairs) as "
     "leverage. Never exceed fair value; never lowball so hard it kills the deal. "
+    "IMPORTANT: the context may include pasted marketplace clutter (other cars, "
+    "menus, prices for unrelated listings) — ignore all of that and focus ONLY on "
+    "the back-and-forth between me and THIS seller about THIS vehicle. "
     'Respond with ONLY JSON: {"offer": int, "rationale": "<=2 sentences, why this '
     'number given where the deal already is", "current_state": "one line: where '
     'the negotiation stands now"}.'
 )
+
+# Pasted Marketplace threads can be long; keep enough to include the whole chat.
+_CTX_LIMIT = 16000
 
 
 def negotiate_offer(
@@ -75,7 +81,7 @@ def negotiate_offer(
 
     p("working out an offer")
     user = (f"MARKET & VEHICLE:\n{_market_summary(report)}\n\n"
-            f"CONVERSATION / CONTEXT:\n{context[:4000]}")
+            f"CONVERSATION / CONTEXT:\n{context[:_CTX_LIMIT]}")
     data, _ = llm.chat_json(_SYSTEM, [{"role": "user", "content": user}])
     if not data or "offer" not in data:
         result.note = "model did not return a usable offer"
@@ -106,6 +112,6 @@ def _draft_reply(report: VehicleReport, context: str, offer: int) -> str | None:
         f"my number, and clearly land on ${offer:,}. 2-5 sentences. "
         'Return ONLY JSON: {"message": str}.'
     )
-    user = f"FINDINGS:\n{_market_summary(report)}\n\nCONVERSATION SO FAR:\n{context[:4000]}"
+    user = f"FINDINGS:\n{_market_summary(report)}\n\nCONVERSATION SO FAR:\n{context[:_CTX_LIMIT]}"
     data, _ = llm.chat_json(system, [{"role": "user", "content": user}])
     return (data or {}).get("message") or None

@@ -191,14 +191,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.debug:
         diag = render_diagnostics(report)
+        ctx_dump = (f"captured context: {len(context)} chars\n"
+                    f"----- BEGIN CONTEXT -----\n{context}\n----- END CONTEXT -----"
+                    if context else "captured context: (none)")
         print("\n" + diag, file=sys.stderr)
+        print("\n" + ctx_dump, file=sys.stderr)
         try:
             from datetime import datetime
             logp = Path(__file__).resolve().parent / ".cache" / "debug.log"
             logp.parent.mkdir(exist_ok=True)
             with logp.open("a") as f:
                 f.write(f"\n=== {datetime.now().isoformat(timespec='seconds')} "
-                        f"{report.decoded.vin} ===\n{diag}\n")
+                        f"{report.decoded.vin} ===\n{diag}\n{ctx_dump}\n")
         except OSError:
             pass
 
