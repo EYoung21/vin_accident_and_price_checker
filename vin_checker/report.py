@@ -295,9 +295,10 @@ def render_card(r: VehicleReport) -> str:
                   f"    salvage-auction {_badge_short(h.auction_status)}"))
     for line in textwrap.wrap(" · ".join(h.auction_details), _CARD_W - 2)[:3]:
         L.append(_row("  " + paint(line, RED)))
-    safety = rc.error or (f"{rc.count} open recalls"
-                          + (f",  {rc.complaint_count} complaints" if rc.complaint_count else ""))
-    safety_row = paint("SAFETY", BOLD, CYAN) + "       " + safety
+    parts = ["recalls n/a" if rc.error else f"{rc.count} open recalls"]
+    if rc.complaint_count:
+        parts.append(f"{rc.complaint_count} complaints")
+    safety_row = paint("SAFETY", BOLD, CYAN) + "       " + ",  ".join(parts)
     if r.safety and r.safety.overall:
         safety_row += "  ·  " + paint(f"NCAP {r.safety.overall}/5", GRN)
     L.append(_row(safety_row))

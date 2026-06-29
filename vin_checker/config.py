@@ -21,9 +21,11 @@ class Config:
     autodev_api_key: str | None = os.getenv("AUTODEV_API_KEY") or None
     marketcheck_api_key: str | None = os.getenv("MARKETCHECK_API_KEY") or None
     aws_region: str = os.getenv("AWS_REGION", "us-east-1")
-    # Verified working in us-east-1 via Converse. DeepSeek V3.2 = cheap + capable.
-    # Fallback: "us.anthropic.claude-haiku-4-5-20251001-v1:0" (needs the us. prefix).
-    bedrock_model_id: str = os.getenv("BEDROCK_MODEL_ID", "deepseek.v3.2")
+    # Claude Haiku 4.5 on Bedrock (verified in us-east-1; needs the us. inference
+    # prefix). Cheap + capable for parsing/negotiation. Swap via BEDROCK_MODEL_ID
+    # (e.g. a Sonnet/Opus id for sharper negotiation, or deepseek.v3.2).
+    bedrock_model_id: str = os.getenv(
+        "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 
     # Network defaults
     http_timeout: int = int(os.getenv("HTTP_TIMEOUT", "20"))

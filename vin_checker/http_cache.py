@@ -25,8 +25,12 @@ def _key(url: str, params: dict | None) -> Path:
     return CACHE_DIR / (hashlib.sha1(raw.encode()).hexdigest() + ".json")
 
 
-def get_json(url, params=None, headers=None, ttl=86400):
-    """GET JSON with a disk cache. Raises requests exceptions on a live miss."""
+def get_json(url, params=None, headers=None, ttl=86400, tolerate_status=False):
+    """GET JSON with a disk cache. Raises requests exceptions on a live miss.
+
+    tolerate_status=True returns a valid JSON body even on a 4xx/5xx — NHTSA's
+    recalls API is known to send HTTP 400 with a perfectly good "0 results" body.
+    """
     path = _key(url, params)
     if path.exists() and (time.time() - path.stat().st_mtime) < ttl:
         try:
@@ -35,8 +39,13 @@ def get_json(url, params=None, headers=None, ttl=86400):
             pass  # corrupt cache entry → refetch
 
     resp = requests.get(url, params=params, headers=headers, timeout=CONFIG.http_timeout)
-    resp.raise_for_status()
-    data = resp.json()
+    if not tolerate_status:
+        resp.raise_for_status()
+    try:
+        data = resp.json()
+    except ValueError:
+        resp.raise_for_status()  # no JSON body → surface the HTTP error
+        raise
     try:
         CACHE_DIR.mkdir(exist_ok=True)
         path.write_text(json.dumps(data))

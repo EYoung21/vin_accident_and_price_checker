@@ -52,30 +52,35 @@ def get_recalls(decoded: DecodedVin, include_complaints: bool = True) -> RecallR
     if params is None:
         return RecallReport(recalls=[], error="insufficient decode data for recalls")
 
+    recalls: list[Recall] = []
+    error = None
     try:
-        results = http_cache.get_json(RECALLS_URL, params=params, ttl=604800).get("results") or []
-    except (requests.RequestException, ValueError) as e:
-        return RecallReport(recalls=[], error=f"recall lookup failed: {e}")
+        # tolerate_status: NHTSA sometimes returns HTTP 400 with a valid 0-results body.
+        results = http_cache.get_json(
+            RECALLS_URL, params=params, ttl=604800, tolerate_status=True).get("results") or []
+        recalls = [
+            Recall(
+                campaign=r.get("NHTSACampaignNumber", "").strip(),
+                component=r.get("Component", "").strip(),
+                summary=r.get("Summary", "").strip(),
+                remedy=r.get("Remedy", "").strip(),
+            )
+            for r in results
+        ]
+    except (requests.RequestException, ValueError):
+        error = "recalls unavailable"
 
-    recalls = [
-        Recall(
-            campaign=r.get("NHTSACampaignNumber", "").strip(),
-            component=r.get("Component", "").strip(),
-            summary=r.get("Summary", "").strip(),
-            remedy=r.get("Remedy", "").strip(),
-        )
-        for r in results
-    ]
-
+    # Complaints are a separate endpoint — fetch independently so a recall hiccup
+    # doesn't also hide the complaint count.
     complaint_count = None
     if include_complaints:
         try:
             complaint_count = http_cache.get_json(
-                COMPLAINTS_URL, params=params, ttl=604800).get("count")
+                COMPLAINTS_URL, params=params, ttl=604800, tolerate_status=True).get("count")
         except (requests.RequestException, ValueError):
             complaint_count = None  # non-fatal
 
-    return RecallReport(recalls=recalls, complaint_count=complaint_count)
+    return RecallReport(recalls=recalls, complaint_count=complaint_count, error=error)
 
 
 @dataclass
