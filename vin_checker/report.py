@@ -11,7 +11,7 @@ from .comps import CompsReport, get_comps
 from .config import CONFIG
 from .decode import DecodedVin, decode_vin
 from .history import HistoryReport, get_history
-from .recalls import RecallReport, get_recalls
+from .recalls import RecallReport, SafetyRatings, get_recalls, get_safety_ratings
 
 
 @dataclass
@@ -20,6 +20,7 @@ class VehicleReport:
     comps: CompsReport
     history: HistoryReport
     recalls: RecallReport
+    safety: SafetyRatings | None = None
     mileage: int | None = None
     extras: dict = field(default_factory=dict)
 
@@ -36,8 +37,28 @@ def build_report(
         comps=get_comps(decoded, mileage=mileage),
         history=get_history(vin, statvin_fixture, vincheck_fixture),
         recalls=get_recalls(decoded),
+        safety=get_safety_ratings(decoded),
         mileage=mileage,
     )
+
+
+def verdict(r: VehicleReport) -> tuple[str, str]:
+    """One-glance buy/pass call computed from the flags. Returns (banner, reason)."""
+    h = r.history
+    bad = [b for b in h.title_brands if b in _DEALBREAKER]
+    rollback = bool(r.mileage and h.auction_odometer and r.mileage < h.auction_odometer - 1000)
+    if bad or h.auction_status == "flagged" or rollback:
+        reasons = []
+        if bad:
+            reasons.append(", ".join(bad) + " title")
+        elif h.auction_status == "flagged":
+            reasons.append("salvage auction record")
+        if rollback:
+            reasons.append("odometer rollback")
+        return "❌ HARD PASS", "; ".join(reasons)
+    if h.title_status == "clean" and h.auction_status in ("clean", "inconclusive"):
+        return "✅ LOOKS CLEAN", "no title brand or auction record found (free sources)"
+    return "⚠️  CAUTION", "couldn't fully verify history — capture stat.vin/vincheck to confirm"
 
 
 # --------------------------------------------------------------------------- #
@@ -164,6 +185,9 @@ def _sources(r: VehicleReport) -> list[str]:
     src = [f"auction/title: stat.vin/cars/{vin}"]
     if h.auction_lot:
         src.append(f"copart lot {h.auction_lot}: copart.com/lot/{h.auction_lot}")
+    if h.auction_photos:
+        extra = f" (+{len(h.auction_photos) - 1} more)" if len(h.auction_photos) > 1 else ""
+        src.append(f"damage photo: {h.auction_photos[0]}{extra}")
     src.append(f"title brands: vincheck.info  ·  recalls: nhtsa.gov/recalls (VIN {vin})")
     return src
 
@@ -171,7 +195,14 @@ def _sources(r: VehicleReport) -> list[str]:
 def render_card(r: VehicleReport) -> str:
     """The shareable, fact-only card (no LLM offer). Backed by public records."""
     d, c, h, rc = r.decoded, r.comps, r.history, r.recalls
-    L = [_rule("┌", "┐")]
+    L = []
+    # Verdict banner ABOVE the box (emoji-safe; instantly readable in a screenshot)
+    banner, reason = verdict(r)
+    L.append("")
+    L.append(f"  {banner}")
+    for line in textwrap.wrap(reason, _CARD_W):
+        L.append(f"  {line}")
+    L.append(_rule("┌", "┐"))
     L.append(_row(d.full_name or d.vin))
     sub = "   ".join(p for p in (d.vin, f"{r.mileage:,} mi" if r.mileage else "", d.engine) if p)
     L.append(_row(sub))
@@ -196,6 +227,8 @@ def render_card(r: VehicleReport) -> str:
         L.append(_row("  " + line))
     safety = rc.error or (f"{rc.count} open recalls"
                           + (f",  {rc.complaint_count} complaints" if rc.complaint_count else ""))
+    if r.safety and r.safety.overall:
+        safety += f"  ·  NCAP {r.safety.overall}/5"
     L.append(_row(f"SAFETY       {safety}"))
 
     # Watch-outs (deterministic, fact-based — safe to show a seller)
@@ -237,10 +270,12 @@ def render_json(r: VehicleReport) -> str:
         except TypeError:
             return str(o)
 
+    banner, reason = verdict(r)
     payload = {
         "vin": r.decoded.vin,
         "vehicle": r.decoded.full_name,
         "mileage": r.mileage,
+        "verdict": banner, "verdict_reason": reason,
         "decoded": {k: v for k, v in asdict(r.decoded).items() if k != "raw"},
         "value": {
             "low": r.comps.low, "median": r.comps.median, "high": r.comps.high,
@@ -252,5 +287,6 @@ def render_json(r: VehicleReport) -> str:
             "count": r.recalls.count, "complaints": r.recalls.complaint_count,
             "items": [asdict(x) for x in r.recalls.recalls], "error": r.recalls.error,
         },
+        "safety": asdict(r.safety) if r.safety else None,
     }
     return json.dumps(payload, indent=2, default=str)

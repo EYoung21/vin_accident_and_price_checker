@@ -27,6 +27,7 @@ from vin_checker.report import (
     render_negotiation,
     render_offer_private,
     render_text,
+    verdict,
 )
 
 
@@ -36,6 +37,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--listing", type=Path, help="text file with a pasted listing")
     p.add_argument("--mileage", type=int, help="odometer, tightens the comps")
     p.add_argument("--context", type=Path, help="text file: listing + seller chat → offer")
+    p.add_argument("--list", action="store_true", dest="list_checks",
+                   help="show all cars you've checked, ranked best-to-worst")
     p.add_argument("--json", action="store_true", help="emit JSON instead of a card")
     p.add_argument("--plain", action="store_true", help="plain text instead of the card")
     p.add_argument("--no-llm", action="store_true", help="disable LLM parsing + offer")
@@ -76,6 +79,12 @@ def _interactive() -> tuple[str, int | None, str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
+
+    if args.list_checks:
+        from vin_checker.logstore import render_log
+
+        print(render_log())
+        return 0
 
     context = ""
     if not args.vin and not args.listing:
@@ -128,6 +137,17 @@ def main(argv: list[str] | None = None) -> int:
         print("\n" + render_card(report))
         if neg is not None:
             print(render_offer_private(neg))
+
+    # Log this check so `vincheck --list` can rank cars you're comparing.
+    from vin_checker.logstore import save_check
+
+    banner, _ = verdict(report)
+    save_check({
+        "vin": report.decoded.vin, "vehicle": report.decoded.full_name,
+        "mileage": report.mileage, "verdict": banner,
+        "value_median": report.comps.median,
+        "offer": getattr(neg, "final_offer", None) if neg else None,
+    })
     return 0
 
 

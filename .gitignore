@@ -4,6 +4,9 @@
 # Captured vehicle HTML / specific-car data — PII repo only (force-added there).
 automation_html/
 
+# API response cache (rate-limit protection)
+.cache/
+
 # Python
 .venv/
 __pycache__/

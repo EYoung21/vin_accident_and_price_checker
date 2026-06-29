@@ -13,11 +13,13 @@ from dataclasses import dataclass
 
 import requests
 
-from .config import CONFIG
+from . import http_cache
 from .decode import DecodedVin
 
 RECALLS_URL = "https://api.nhtsa.gov/recalls/recallsByVehicle"
 COMPLAINTS_URL = "https://api.nhtsa.gov/complaints/complaintsByVehicle"
+SAFETY_MMY_URL = "https://api.nhtsa.gov/SafetyRatings/modelyear/{year}/make/{make}/model/{model}"
+SAFETY_ID_URL = "https://api.nhtsa.gov/SafetyRatings/VehicleId/{vid}"
 
 
 @dataclass
@@ -51,9 +53,7 @@ def get_recalls(decoded: DecodedVin, include_complaints: bool = True) -> RecallR
         return RecallReport(recalls=[], error="insufficient decode data for recalls")
 
     try:
-        resp = requests.get(RECALLS_URL, params=params, timeout=CONFIG.http_timeout)
-        resp.raise_for_status()
-        results = resp.json().get("results") or []
+        results = http_cache.get_json(RECALLS_URL, params=params, ttl=604800).get("results") or []
     except (requests.RequestException, ValueError) as e:
         return RecallReport(recalls=[], error=f"recall lookup failed: {e}")
 
@@ -70,12 +70,38 @@ def get_recalls(decoded: DecodedVin, include_complaints: bool = True) -> RecallR
     complaint_count = None
     if include_complaints:
         try:
-            cresp = requests.get(
-                COMPLAINTS_URL, params=params, timeout=CONFIG.http_timeout
-            )
-            cresp.raise_for_status()
-            complaint_count = cresp.json().get("count")
+            complaint_count = http_cache.get_json(
+                COMPLAINTS_URL, params=params, ttl=604800).get("count")
         except (requests.RequestException, ValueError):
             complaint_count = None  # non-fatal
 
     return RecallReport(recalls=recalls, complaint_count=complaint_count)
+
+
+@dataclass
+class SafetyRatings:
+    overall: str | None = None     # NCAP overall stars, e.g. "5"
+    rollover: str | None = None
+    error: str | None = None
+
+
+def get_safety_ratings(decoded: DecodedVin) -> SafetyRatings:
+    """NHTSA NCAP crash-test stars (free, no key). Two calls: model-year lookup
+    → VehicleId → ratings. Takes the first matching variant."""
+    if not (decoded.make and decoded.model and decoded.year):
+        return SafetyRatings(error="insufficient decode data")
+    try:
+        url = SAFETY_MMY_URL.format(year=decoded.year, make=decoded.make, model=decoded.model)
+        results = http_cache.get_json(url, ttl=2592000).get("Results") or []
+        if not results:
+            return SafetyRatings(error="no NCAP rating for this model")
+        vid = results[0].get("VehicleId")
+        rating = (http_cache.get_json(SAFETY_ID_URL.format(vid=vid), ttl=2592000)
+                  .get("Results") or [{}])[0]
+        overall = rating.get("OverallRating")
+        return SafetyRatings(
+            overall=overall if overall and overall != "Not Rated" else None,
+            rollover=rating.get("RolloverRating") or None,
+        )
+    except (requests.RequestException, ValueError, KeyError, IndexError) as e:
+        return SafetyRatings(error=f"safety lookup failed: {e}")

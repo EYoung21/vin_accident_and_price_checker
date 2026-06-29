@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 import requests
 
+from . import http_cache
 from .config import CONFIG
 from .decode import DecodedVin
 
@@ -99,14 +100,16 @@ def _autodev_comps(
     if decoded.year:
         params["vehicle.year"] = decoded.year
     try:
-        resp = requests.get(
-            AUTODEV_URL,
-            params=params,
+        listings = http_cache.get_json(
+            AUTODEV_URL, params=params,
             headers={"Authorization": f"Bearer {CONFIG.autodev_api_key}"},
-            timeout=CONFIG.http_timeout,
-        )
-        resp.raise_for_status()
-        listings = resp.json().get("data") or []
+            ttl=21600,  # 6h — re-checking a car won't burn the 1,000/mo quota
+        ).get("data") or []
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else "?"
+        report.notes.append(f"Auto.dev rate-limited ({code})" if code == 429
+                            else f"Auto.dev error: {e}")
+        return
     except (requests.RequestException, ValueError) as e:
         report.notes.append(f"Auto.dev error: {e}")
         return
@@ -116,18 +119,13 @@ def _autodev_comps(
         price = _to_int(_dig(ln, "retailListing", "price") or ln.get("price"))
         if not price:
             continue
-        miles = _to_int(
-            _dig(ln, "retailListing", "miles")
-            or _dig(ln, "retailListing", "mileage")
-            or _dig(ln, "vehicle", "mileage")
-        )
         report.comps.append(
             Comp(
                 price=price,
-                miles=miles,
+                miles=_to_int(_dig(ln, "retailListing", "miles")),
                 trim=_dig(ln, "vehicle", "trim"),
                 source="auto.dev",
-                url=_dig(ln, "retailListing", "vdpUrl") or ln.get("vdpUrl"),
+                url=_dig(ln, "retailListing", "vdp") or _dig(ln, "retailListing", "vdpUrl"),
             )
         )
         added += 1
@@ -238,12 +236,40 @@ def _craigslist_comps(decoded: DecodedVin, report: CompsReport) -> None:
         )
 
 
+def _refine_comps(report: CompsReport, decoded: DecodedVin, mileage: int | None) -> None:
+    """Make the median trustworthy: keep same-ish trim, a mileage band, and drop
+    price outliers. Each filter only applies if it leaves a usable sample."""
+    comps = report.comps
+
+    if decoded.trim:
+        tok = decoded.trim.split()[0].lower()  # e.g. "Premium" → "premium"
+        same = [c for c in comps if c.trim and tok in c.trim.lower()]
+        if len(same) >= 5:
+            comps = same
+            report.notes.append(f"refined to trim~{tok}: {len(same)}")
+
+    if mileage:
+        band = [c for c in comps if c.miles and abs(c.miles - mileage) <= 30000]
+        if len(band) >= 5:
+            comps = band
+            report.notes.append(f"refined to ±30k mi: {len(band)}")
+
+    prices = sorted(c.price for c in comps)
+    if len(prices) >= 8:
+        q1, q3 = statistics.quantiles(prices, n=4, method="inclusive")[::2]
+        lo, hi = q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1)
+        comps = [c for c in comps if lo <= c.price <= hi]
+
+    report.comps = comps
+
+
 def get_comps(decoded: DecodedVin, mileage: int | None = None) -> CompsReport:
     report = CompsReport()
     _autodev_comps(decoded, mileage, report)      # free, no credit card (preferred)
     if not report.comps:
         _marketcheck_comps(decoded, mileage, report)
         _craigslist_comps(decoded, report)
+    _refine_comps(report, decoded, mileage)
     if not report.comps:
         report.notes.append(
             "No comps found. Add a MARKETCHECK_API_KEY for reliable value data."

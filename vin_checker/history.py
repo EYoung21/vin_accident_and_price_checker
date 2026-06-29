@@ -52,6 +52,7 @@ class HistoryReport:
     auction_details: list[str] = field(default_factory=list)
     auction_lot: str | None = None       # Copart/IAAI lot # → source link
     auction_odometer: int | None = None  # odometer at auction → rollback check
+    auction_photos: list[str] = field(default_factory=list)  # damage photo URLs
     title_status: str = "inconclusive"
     title_brands: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -135,6 +136,11 @@ def _parse_statvin(html: str, report: HistoryReport, vin: str) -> None:
         report.auction_odometer = (
             int(d) if (d := re.sub(r"\D", "", fields.get("odometer, mi", ""))) else None
         )
+        # stat.vin damage photos for THIS car end in the lot number in the URL path.
+        if report.auction_lot:
+            photos = re.findall(
+                rf"https?://cdn\d+\.stat\.vin/\S+?/{report.auction_lot}\b", html)
+            report.auction_photos = list(dict.fromkeys(photos))[:5]
         for key in _STATVIN_FIELDS:
             if (v := fields.get(key.lower())):
                 report.auction_details.append(f"{key}: {v}")

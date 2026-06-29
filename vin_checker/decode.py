@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 import requests
 
-from .config import CONFIG
+from . import http_cache
 
 VPIC_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/{vin}?format=json"
 
@@ -76,9 +76,7 @@ def decode_vin(vin: str) -> DecodedVin:
         raise DecodeError(f"'{vin}' is not a valid 17-character VIN")
 
     try:
-        resp = requests.get(VPIC_URL.format(vin=vin), timeout=CONFIG.http_timeout)
-        resp.raise_for_status()
-        results = resp.json().get("Results") or []
+        results = http_cache.get_json(VPIC_URL.format(vin=vin), ttl=2592000).get("Results") or []
     except (requests.RequestException, ValueError) as e:
         raise DecodeError(f"vPIC request failed: {e}") from e
 
