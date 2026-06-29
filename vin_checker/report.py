@@ -158,7 +158,8 @@ def render_negotiation(neg) -> str:
         return "\n".join(out)
     if neg.current_state:
         out.append(f"   where it stands: {neg.current_state}")
-    out.append(f"   👉 OFFER: {_money(neg.final_offer)}")
+    label = "DEAL AGREED" if getattr(neg, "deal_agreed", False) else "OFFER"
+    out.append(f"   👉 {label}: {_money(neg.final_offer)}")
     if neg.rationale:
         out.append(f"   why: {neg.rationale}")
     return "\n".join(out)
@@ -399,7 +400,8 @@ def render_offer_private(neg) -> str:
     if neg is None or not getattr(neg, "final_offer", None):
         return ""
     L = ["", paint("🔒 PRIVATE — your move (do NOT screenshot/send this)", DIM)]
-    L.append("   " + paint(f">> OFFER: {_money(neg.final_offer)}", GRN, BOLD))
+    label = "DEAL AGREED" if getattr(neg, "deal_agreed", False) else "OFFER"
+    L.append("   " + paint(f">> {label}: {_money(neg.final_offer)}", GRN, BOLD))
     if getattr(neg, "current_state", None):
         for line in textwrap.wrap(f"where it stands: {neg.current_state}", _CARD_W + 2):
             L.append("   " + paint(line, DIM))

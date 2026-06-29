@@ -21,6 +21,7 @@ class NegotiationResult:
     rationale: str | None = None       # one concise reason for the number
     current_state: str | None = None   # where the deal stands, per the chat
     draft_message: str | None = None   # ready-to-send reply to the seller
+    deal_agreed: bool = False          # consensus already reached → confirm, don't re-offer
     available: bool = True
     note: str = ""
 
@@ -65,10 +66,15 @@ _SYSTEM = (
     "unless the seller explicitly rejected it AND countered with a higher number.\n"
     "- If no price has been discussed yet: open below asking, using comps/history "
     "(salvage/title/odometer/repairs) as leverage.\n"
+    "ALSO detect CONSENSUS: if a final price is already mutually agreed — both sides "
+    "aligned on a number, or you're now just arranging the handoff (pickup/payment/"
+    "time) — set deal_agreed=true and agreed_price to that number, and do NOT propose "
+    "a new or different number.\n"
     "Ignore unrelated marketplace listings, menus, and other cars in the paste.\n"
     'Respond with ONLY JSON: {"offer": int, "asking_price": int|null, '
-    '"my_last_offer": int|null, "seller_accepted": true|false, "rationale": '
-    '"<=2 sentences", "current_state": "one line: where the deal stands now"}.'
+    '"my_last_offer": int|null, "seller_accepted": true|false, "deal_agreed": '
+    'true|false, "agreed_price": int|null, "rationale": "<=2 sentences", '
+    '"current_state": "one line: where the deal stands now"}.'
 )
 
 
@@ -103,22 +109,41 @@ def negotiate_offer(
     asking = _int(data.get("asking_price"))
     my_last = _int(data.get("my_last_offer"))
     accepted = bool(data.get("seller_accepted"))
-    if accepted and my_last:
-        offer = my_last        # deal is done at the price they accepted
-    if asking and offer > asking:
+    agreed = bool(data.get("deal_agreed")) or accepted
+
+    if agreed:
+        # Consensus reached — lock the agreed number, don't re-offer.
+        offer = _int(data.get("agreed_price")) or my_last or offer
+    elif asking and offer > asking:
         offer = asking         # never offer above the seller's asking price
 
     result.final_offer = offer
+    result.deal_agreed = agreed
     result.rationale = data.get("rationale") or None
     result.current_state = data.get("current_state") or None
 
-    p("drafting a reply to the seller")
-    result.draft_message = _draft_reply(report, context, result.final_offer)
+    p("confirming the deal" if agreed else "drafting a reply to the seller")
+    result.draft_message = _draft_reply(report, context, result.final_offer, agreed)
     return result
 
 
-def _draft_reply(report: VehicleReport, context: str, offer: int) -> str | None:
-    """A short, ready-to-send message continuing the negotiation with the seller."""
+def _draft_reply(report: VehicleReport, context: str, offer: int,
+                 deal_agreed: bool = False) -> str | None:
+    """A short, ready-to-send message. If the deal's already agreed, confirm and move
+    to logistics; otherwise continue the negotiation."""
+    if deal_agreed:
+        system = (
+            f"The price is ALREADY AGREED at ${offer:,}. Do NOT re-offer, re-negotiate, "
+            "or restate justifications. Write a short, friendly text that confirms I'll "
+            "take it at that price and moves to logistics — reply naturally to their "
+            "last message and ask the practical next step (when/where to meet, payment, "
+            "pickup). Sound like a real person; never mention any tool/AI. 1-3 sentences. "
+            'Return ONLY JSON: {"message": str}.'
+        )
+        user = f"CONVERSATION SO FAR:\n{context[:_CTX_LIMIT]}"
+        data, _ = llm.chat_json(system, [{"role": "user", "content": user}])
+        return (data or {}).get("message") or None
+
     system = (
         "Write my next text to a PRIVATE car seller — it must read as a natural REPLY "
         "to their MOST RECENT message. First acknowledge what they just said or did "
