@@ -46,15 +46,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 def _read_block(prompt: str) -> str:
     print(prompt)
-    print("(paste everything, then type END on its own line and press Enter)")
+    print("(paste it all, then press Enter on an empty line to finish)")
     lines: list[str] = []
     while True:
         try:
             line = input()
-        except EOFError:
+        except EOFError:  # Ctrl-D also finishes
             break
-        if line.strip() == "END":
-            break
+        if line.strip() == "":
+            if lines:  # a blank line after some content = done
+                break
+            continue   # ignore blank lines before any content
         lines.append(line)
     return "\n".join(lines).strip()
 
