@@ -1,15 +1,15 @@
-"""Decide what to OFFER a private seller, then push the number down.
+"""Decide what to OFFER a private seller — anchored on the actual conversation.
 
-Your flow: paste a VIN + free-text context (listing description, your chat with
-the seller). The model proposes an offer grounded in the real market comps and
-the context, then we re-prompt it ("can you go lower?") in a loop. Each round it
-either lowers the number or holds; when it holds (or stops dropping), that's the
-price you take to the seller. Capped at a few rounds so we don't burn LLM calls.
+Your flow: paste a VIN + free-text context (listing + your chat with the seller).
+One call figures out where the negotiation currently stands (the seller's latest
+price, anything you already offered or agreed) and recommends your single best
+NEXT move — aggressive but credible — using the market comps and history findings
+as leverage. Then it drafts a send-ready reply.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from . import llm
 from .report import VehicleReport
@@ -18,8 +18,9 @@ from .report import VehicleReport
 @dataclass
 class NegotiationResult:
     final_offer: int | None = None
-    rounds: list[dict] = field(default_factory=list)  # [{offer, rationale, held}]
-    draft_message: str | None = None  # ready-to-send reply to the seller
+    rationale: str | None = None       # one concise reason for the number
+    current_state: str | None = None   # where the deal stands, per the chat
+    draft_message: str | None = None   # ready-to-send reply to the seller
     available: bool = True
     note: str = ""
 
@@ -48,75 +49,47 @@ def _market_summary(report: VehicleReport) -> str:
 
 
 _SYSTEM = (
-    "You are a shrewd but realistic used-car buyer helping me decide what price to "
-    "OFFER a private-party seller. Offers should be aggressive-but-credible: below "
-    "the asking-price market median (asking prices run above sold prices), adjusted "
-    "for mileage, history flags, needed repairs, and anything the seller revealed. "
-    "Never propose an insulting lowball that ends the conversation, and never exceed "
-    "fair market value. Always respond with ONLY a JSON object."
+    "You are a shrewd, realistic used-car buyer. From the CONVERSATION, first work "
+    "out where the negotiation currently stands: the lowest price the seller has "
+    "stated or agreed to, any number I've already offered, and anything tentatively "
+    "agreed. Then recommend my single best NEXT offer — aggressive but credible — "
+    "ANCHORED ON THE CURRENT STATE of the deal: if the seller has already come down, "
+    "build from that number, do NOT restart from the original asking price. Use the "
+    "market comps and history findings (salvage/title/odometer/needed repairs) as "
+    "leverage. Never exceed fair value; never lowball so hard it kills the deal. "
+    'Respond with ONLY JSON: {"offer": int, "rationale": "<=2 sentences, why this '
+    'number given where the deal already is", "current_state": "one line: where '
+    'the negotiation stands now"}.'
 )
 
 
 def negotiate_offer(
-    report: VehicleReport, context: str, max_rounds: int = 4, progress=None
+    report: VehicleReport, context: str, progress=None
 ) -> NegotiationResult:
     p = progress or (lambda *_: None)
     result = NegotiationResult()
     if not llm.available():
         result.available = False
-        result.note = "LLM unavailable (install boto3 + set AWS creds), or run without --negotiate"
+        result.note = "LLM unavailable (install boto3 + set AWS creds), or run with --no-llm"
         return result
 
-    market = _market_summary(report)
-    messages: list[dict] = [
-        {
-            "role": "user",
-            "content": (
-                f"MARKET & VEHICLE:\n{market}\n\nLISTING / SELLER CONTEXT:\n{context[:4000]}\n\n"
-                'Propose my opening offer. Return JSON: {"offer": int, "rationale": str}.'
-            ),
-        }
-    ]
+    p("working out an offer")
+    user = (f"MARKET & VEHICLE:\n{_market_summary(report)}\n\n"
+            f"CONVERSATION / CONTEXT:\n{context[:4000]}")
+    data, _ = llm.chat_json(_SYSTEM, [{"role": "user", "content": user}])
+    if not data or "offer" not in data:
+        result.note = "model did not return a usable offer"
+        return result
+    try:
+        result.final_offer = int(data["offer"])
+    except (TypeError, ValueError):
+        result.note = "model returned a non-numeric offer"
+        return result
+    result.rationale = data.get("rationale") or None
+    result.current_state = data.get("current_state") or None
 
-    last_offer: int | None = None
-    for round_no in range(max_rounds):
-        p(f"working out an offer (round {round_no + 1})")
-        data, raw = llm.chat_json(_SYSTEM, messages)
-        if not data or "offer" not in data:
-            result.note = "model did not return a usable offer"
-            break
-        try:
-            offer = int(data["offer"])
-        except (TypeError, ValueError):
-            result.note = "model returned a non-numeric offer"
-            break
-        held = bool(data.get("hold")) or (last_offer is not None and offer >= last_offer)
-        result.rounds.append(
-            {"offer": offer, "rationale": data.get("rationale", ""), "held": held}
-        )
-
-        # Stop if the model holds or stops dropping; otherwise keep pushing.
-        if held:
-            result.final_offer = last_offer if last_offer is not None else offer
-            break
-        last_offer = offer
-        result.final_offer = offer
-
-        # Keep the conversation going: append the model's turn, then push lower.
-        messages.append({"role": "assistant", "content": raw or str(offer)})
-        messages.append({
-            "role": "user",
-            "content": (
-                f"That's ${offer:,}. Can you justify going even lower without an "
-                "unrealistic lowball that kills the deal? If you genuinely can't, "
-                'return the same number with hold=true. Return JSON: '
-                '{"offer": int, "hold": bool, "rationale": str}.'
-            ),
-        })
-
-    if result.final_offer:
-        p("drafting a reply to the seller")
-        result.draft_message = _draft_reply(report, context, result.final_offer)
+    p("drafting a reply to the seller")
+    result.draft_message = _draft_reply(report, context, result.final_offer)
     return result
 
 
@@ -124,12 +97,14 @@ def _draft_reply(report: VehicleReport, context: str, offer: int) -> str | None:
     """A short, ready-to-send message continuing the negotiation with the seller."""
     system = (
         "Write a short message I will send a PRIVATE car seller to continue our "
-        "negotiation (or to open with an offer if there's no prior chat). Tone: "
+        "negotiation (or to open with an offer if there's no prior chat). Pick up "
+        "naturally from where the conversation already is — acknowledge any price "
+        "they've already come down to, don't contradict what was agreed. Tone: "
         "friendly but firm, like a normal buyer texting — NOT a form letter, and "
-        "never mention any tool, report, or AI. Naturally use the concrete facts "
-        "(salvage/title brand, auction record, odometer, needed repairs, market "
-        f"comps) as the reason for my number, and clearly offer ${offer:,}. "
-        '2-5 sentences. Return ONLY JSON: {"message": str}.'
+        "never mention any tool, report, or AI. Use the concrete facts (salvage/"
+        "title, auction record, odometer, needed repairs, comps) as the reason for "
+        f"my number, and clearly land on ${offer:,}. 2-5 sentences. "
+        'Return ONLY JSON: {"message": str}.'
     )
     user = f"FINDINGS:\n{_market_summary(report)}\n\nCONVERSATION SO FAR:\n{context[:4000]}"
     data, _ = llm.chat_json(system, [{"role": "user", "content": user}])

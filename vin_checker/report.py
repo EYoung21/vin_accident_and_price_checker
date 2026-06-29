@@ -156,10 +156,11 @@ def render_negotiation(neg) -> str:
     if neg.final_offer is None:
         out.append(f"   could not produce an offer — {neg.note or 'no result'}")
         return "\n".join(out)
-    for i, rnd in enumerate(neg.rounds):
-        tag = "HOLD" if rnd["held"] else f"round {i + 1}"
-        out.append(f"   [{tag}] {_money(rnd['offer'])} — {rnd['rationale']}")
-    out.append(f"\n   👉 OFFER THIS: {_money(neg.final_offer)}")
+    if neg.current_state:
+        out.append(f"   where it stands: {neg.current_state}")
+    out.append(f"   👉 OFFER: {_money(neg.final_offer)}")
+    if neg.rationale:
+        out.append(f"   why: {neg.rationale}")
     return "\n".join(out)
 
 
@@ -339,11 +340,14 @@ def render_offer_private(neg) -> str:
     """Your eyes only — keep this OUT of any screenshot you send the seller."""
     if neg is None or not getattr(neg, "final_offer", None):
         return ""
-    L = ["", paint("🔒 PRIVATE — your offer cheat-sheet (do NOT screenshot/send this)", DIM)]
-    for i, rnd in enumerate(neg.rounds):
-        tag = "hold" if rnd["held"] else f"round {i + 1}"
-        L.append(f"   [{tag}] {_money(rnd['offer'])} — {rnd['rationale']}")
-    L.append("\n   " + paint(f">> OFFER THIS: {_money(neg.final_offer)}", GRN, BOLD))
+    L = ["", paint("🔒 PRIVATE — your move (do NOT screenshot/send this)", DIM)]
+    L.append("   " + paint(f">> OFFER: {_money(neg.final_offer)}", GRN, BOLD))
+    if getattr(neg, "current_state", None):
+        for line in textwrap.wrap(f"where it stands: {neg.current_state}", _CARD_W + 2):
+            L.append("   " + paint(line, DIM))
+    if neg.rationale:
+        for line in textwrap.wrap(f"why: {neg.rationale}", _CARD_W + 2):
+            L.append("   " + paint(line, DIM))
     return "\n".join(L)
 
 
