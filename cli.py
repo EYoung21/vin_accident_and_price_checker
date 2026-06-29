@@ -48,6 +48,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--plain", action="store_true", help="plain text instead of the card")
     p.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     p.add_argument("--no-llm", action="store_true", help="disable LLM parsing + offer")
+    p.add_argument("--no-chat", action="store_true",
+                   help="skip the follow-up chat after the report")
     p.add_argument("--debug", action="store_true",
                    help="print diagnostics (comp filtering, why history is unverified, errors)")
     p.add_argument("--statvin-fixture", type=Path, help="captured stat.vin result HTML")
@@ -250,6 +252,10 @@ def main(argv: list[str] | None = None) -> int:
         if neg is not None:
             print(render_draft(neg))
             print(render_offer_private(neg))
+        # Follow-up Q&A (interactive only), briefed on everything + web search.
+        if not args.no_llm and not args.no_chat:
+            from vin_checker.chat import chat_loop
+            chat_loop(report, research=res, neg=neg, pros=pros, cons=cons, context=context)
 
     # Log this check so `vincheck --list` can rank cars you're comparing.
     from vin_checker.logstore import save_check
