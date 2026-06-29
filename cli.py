@@ -29,6 +29,7 @@ from vin_checker.report import (
     render_negotiation,
     render_offer_private,
     render_proscons,
+    render_research,
     render_text,
     set_color,
     verdict,
@@ -212,6 +213,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     from vin_checker.assess import pros_cons
+    from vin_checker.research import research_car
+    res = research_car(report.decoded, report.mileage, use_llm=not args.no_llm, progress=prog)
     pros, cons = pros_cons(report, context, use_llm=not args.no_llm, progress=prog)
 
     neg = None
@@ -222,13 +225,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.plain:
         print(render_text(report))
+        print(render_research(res))
         print(render_proscons(pros, cons))
         if neg is not None:
             print(render_negotiation(neg))
     else:
-        # Shareable card first (screenshot this for the seller), then your pros/cons,
-        # a ready-to-send draft reply, then your private offer (don't send that one).
+        # Card (screenshot for seller) → web research + inspection checklist →
+        # pros/cons → ready-to-send draft → your private offer (don't send that one).
         print("\n" + render_card(report))
+        print(render_research(res))
         print(render_proscons(pros, cons))
         if neg is not None:
             print(render_draft(neg))

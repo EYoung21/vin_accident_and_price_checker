@@ -277,6 +277,11 @@ def render_card(r: VehicleReport) -> str:
     L.append(_row(paint(d.full_name or d.vin, BOLD)))
     sub = "   ".join(p for p in (d.vin, f"{r.mileage:,} mi" if r.mileage else "", d.engine) if p)
     L.append(_row(paint(sub, DIM)))
+    specs = "  ·  ".join(p for p in (
+        d.body_class, f"{d.doors}dr" if d.doors else "", f"{d.hp} hp" if d.hp else "",
+        d.drive_type, d.transmission) if p)
+    if specs:
+        L.append(_row(paint(specs, DIM)))
 
     # Value
     L.append(_rule())
@@ -322,6 +327,39 @@ def render_card(r: VehicleReport) -> str:
         for line in textwrap.wrap(s, _CARD_W - 4):
             L.append(_row(paint("  " + line, DIM)))
     L.append(_rule("└", "┘"))
+    return "\n".join(L)
+
+
+def render_research(res) -> str:
+    """Web-grounded specs/0-60/audio/problems + an in-person inspection checklist."""
+    if res is None or not getattr(res, "available", False):
+        return ""
+    L = ["", paint("🔧 SPECS & RESEARCH  (web-grounded — verify on the car)", BOLD, CYAN)]
+
+    def kv(label, val):
+        if not val:
+            return
+        wrapped = textwrap.wrap(f"{label}: {val}", _CARD_W + 8)
+        for j, line in enumerate(wrapped):
+            L.append("   " + (line if j == 0 else "    " + line))
+
+    kv("0-60", res.zero_to_sixty)
+    kv("drive", res.performance)
+    kv("audio", res.audio)
+    kv("bluetooth", res.connectivity)
+    if res.common_problems:
+        L.append("   " + paint("common problems", BOLD, YEL))
+        for x in res.common_problems:
+            for j, line in enumerate(textwrap.wrap(x, _CARD_W)):
+                L.append("   " + (paint("- ", YEL, BOLD) if j == 0 else "    ") + line)
+    if res.inspect_in_person:
+        L.append("")
+        L.append(paint("🔎 WHAT TO CHECK IN PERSON", BOLD, CYAN))
+        for x in res.inspect_in_person:
+            for j, line in enumerate(textwrap.wrap(x, _CARD_W + 4)):
+                L.append("   " + (paint("[ ] ", CYAN, BOLD) if j == 0 else "    ") + line)
+    if res.sources:
+        L.append("   " + paint("sources: " + "  ".join(res.sources[:3]), DIM))
     return "\n".join(L)
 
 

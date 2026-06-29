@@ -16,6 +16,10 @@ prompt_toolkit>=3.0
 # chromium`; the launcher does this for you. Falls back to manual capture.
 playwright>=1.40
 
+# Free web search (no key) to ground the research section. Optional: set
+# SERPER_API_KEY for higher-quality results instead.
+ddgs>=9.0
+
 # Optional: only needed for the LLM listing-parse / ranking layer (Bedrock).
 # Safe to leave uninstalled if you run with --no-llm.
 boto3>=1.34

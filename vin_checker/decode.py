@@ -41,6 +41,9 @@ class DecodedVin:
     engine: str | None = None
     drive_type: str | None = None
     fuel: str | None = None
+    hp: str | None = None
+    doors: str | None = None
+    transmission: str | None = None
     raw: dict = field(default_factory=dict, repr=False)
 
     @property
@@ -101,5 +104,8 @@ def decode_vin(vin: str) -> DecodedVin:
         engine=_engine_summary(r),
         drive_type=r.get("DriveType") or None,
         fuel=r.get("FuelTypePrimary") or None,
+        hp=(str(int(float(hp))) if (hp := r.get("EngineHP")) else None),
+        doors=r.get("Doors") or None,
+        transmission=r.get("TransmissionStyle") or None,
         raw=r,
     )
