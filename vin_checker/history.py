@@ -36,6 +36,10 @@ _AUTOMATION_DIR = Path(__file__).resolve().parent.parent / "automation_html"
 STATVIN_DIR = _AUTOMATION_DIR / "statvin"
 VINCHECK_DIR = _AUTOMATION_DIR / "vincheck"
 
+# These sites are bot-walled; a live fetch can only ever return the shell, so fail
+# fast instead of waiting on the full timeout for a result that's never coming.
+HIST_TIMEOUT = 10
+
 # Title-brand keywords we treat as red flags if present in NMVTIS results.
 BRAND_KEYWORDS = [
     "salvage", "rebuilt", "reconstructed", "flood", "water damage", "junk",
@@ -84,7 +88,7 @@ def _statvin_fetch(vin: str) -> str | None:
     except TypeError:  # plain requests fallback has no impersonate kwarg
         s = cr.Session()
     try:
-        home = s.get("https://stat.vin/", timeout=CONFIG.http_timeout)
+        home = s.get("https://stat.vin/", timeout=HIST_TIMEOUT)
         m = re.search(
             r'name=["\']csrf-token["\']\s+content=["\']([^"\']+)', home.text
         )
@@ -93,7 +97,7 @@ def _statvin_fetch(vin: str) -> str | None:
         r = s.post(
             "https://stat.vin/car-search",
             data={"vin": vin, "_token": m.group(1)},
-            timeout=CONFIG.http_timeout + 10,
+            timeout=HIST_TIMEOUT,
         )
         return r.text if r.status_code == 200 else None
     except Exception:  # network/TLS/cloudflare -- non-fatal
@@ -164,7 +168,7 @@ def _vincheck_fetch(vin: str) -> str | None:
         s = cr.Session()
     for url in (f"https://vincheck.info/vehicle/{vin}", f"https://vincheck.info/?vin={vin}"):
         try:
-            r = s.get(url, timeout=CONFIG.http_timeout)
+            r = s.get(url, timeout=HIST_TIMEOUT)
             if r.status_code == 200 and len(r.text) > 1000:
                 return r.text
         except Exception:

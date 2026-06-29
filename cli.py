@@ -168,10 +168,18 @@ def main(argv: list[str] | None = None) -> int:
     if not vin:
         sys.exit("No VIN entered and none found in your paste — re-run and enter a VIN.")
 
+    # Lightweight progress to stderr so you can see it's working (kept out of stdout
+    # so --json stays clean and it won't clutter a screenshot of the card).
+    def _progress(msg: str) -> None:
+        print(f"  … {msg}", file=sys.stderr, flush=True)
+
+    prog = None if args.json else _progress
+
     try:
         report = build_report(
             vin, mileage=mileage,
             statvin_fixture=args.statvin_fixture, vincheck_fixture=args.vincheck_fixture,
+            progress=prog,
         )
     except DecodeError as e:
         sys.exit(f"Decode failed: {e}")
@@ -197,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     if context and not args.no_llm:
         from vin_checker.negotiate import negotiate_offer
 
-        neg = negotiate_offer(report, context)
+        neg = negotiate_offer(report, context, progress=prog)
 
     if args.plain:
         print(render_text(report))

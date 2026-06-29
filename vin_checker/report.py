@@ -30,15 +30,21 @@ def build_report(
     mileage: int | None = None,
     statvin_fixture: Path | None = None,
     vincheck_fixture: Path | None = None,
+    progress=None,
 ) -> VehicleReport:
+    p = progress or (lambda *_: None)
+    p("decoding VIN")
     decoded = decode_vin(vin)
+    p("finding comparable listings")
+    comps = get_comps(decoded, mileage=mileage)
+    p("checking title + salvage history")
+    history = get_history(vin, statvin_fixture, vincheck_fixture)
+    p("checking recalls + safety ratings")
+    recalls = get_recalls(decoded)
+    safety = get_safety_ratings(decoded)
     return VehicleReport(
-        decoded=decoded,
-        comps=get_comps(decoded, mileage=mileage),
-        history=get_history(vin, statvin_fixture, vincheck_fixture),
-        recalls=get_recalls(decoded),
-        safety=get_safety_ratings(decoded),
-        mileage=mileage,
+        decoded=decoded, comps=comps, history=history,
+        recalls=recalls, safety=safety, mileage=mileage,
     )
 
 

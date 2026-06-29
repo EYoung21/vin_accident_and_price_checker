@@ -58,8 +58,9 @@ _SYSTEM = (
 
 
 def negotiate_offer(
-    report: VehicleReport, context: str, max_rounds: int = 4
+    report: VehicleReport, context: str, max_rounds: int = 4, progress=None
 ) -> NegotiationResult:
+    p = progress or (lambda *_: None)
     result = NegotiationResult()
     if not llm.available():
         result.available = False
@@ -79,6 +80,7 @@ def negotiate_offer(
 
     last_offer: int | None = None
     for round_no in range(max_rounds):
+        p(f"working out an offer (round {round_no + 1})")
         data, raw = llm.chat_json(_SYSTEM, messages)
         if not data or "offer" not in data:
             result.note = "model did not return a usable offer"
@@ -113,6 +115,7 @@ def negotiate_offer(
         })
 
     if result.final_offer:
+        p("drafting a reply to the seller")
         result.draft_message = _draft_reply(report, context, result.final_offer)
     return result
 
