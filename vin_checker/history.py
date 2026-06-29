@@ -80,9 +80,24 @@ def _looks_like_shell(text: str) -> bool:
 # --------------------------------------------------------------------------- #
 # stat.vin  (salvage auction)
 # --------------------------------------------------------------------------- #
-def _statvin_fetch(vin: str) -> str | None:
-    """Returns result HTML using the verified Laravel CSRF + session POST flow,
-    or None on failure. Live results are often JS-rendered (see module docstring)."""
+def _statvin_fetch(vin: str, decoded=None, progress=None) -> str | None:
+    """Render the salvage-auction page. Prefers a real browser (clears Cloudflare +
+    runs the JS); falls back to the curl_cffi CSRF flow (usually only the shell).
+
+    Tries /cars/<vin> first (where auction records live); for clean cars that route
+    sticks on Cloudflare, so we fall back to the /vin-decoding/ route which clears."""
+    from . import browser
+    if browser.available():
+        (progress or (lambda *_: None))("rendering stat.vin (browser, clears Cloudflare)")
+        urls = [f"https://stat.vin/cars/{vin}"]
+        if decoded and decoded.make and decoded.model:
+            mk = decoded.make.lower().replace(" ", "-")
+            md = decoded.model.lower().replace(" ", "-")
+            urls.append(f"https://stat.vin/vin-decoding/{mk}/{md}/{vin}")
+        for url in urls:
+            html = browser.render(url, settle_ms=4000, timeout_ms=20000, progress=progress)
+            if html and "just a moment" not in html.lower() and vin.lower() in html.lower():
+                return html
     try:
         s = cr.Session(impersonate="chrome")  # type: ignore[call-arg]
     except TypeError:  # plain requests fallback has no impersonate kwarg
@@ -166,12 +181,21 @@ def _parse_statvin(html: str, report: HistoryReport, vin: str) -> None:
 # --------------------------------------------------------------------------- #
 # vincheck.info  (NMVTIS title brand)
 # --------------------------------------------------------------------------- #
-def _vincheck_fetch(vin: str) -> str | None:
+def _vincheck_fetch(vin: str, progress=None) -> str | None:
+    from . import browser
+    if browser.available():
+        (progress or (lambda *_: None))("rendering vincheck.info (browser, clears Cloudflare)")
+        html = browser.render(
+            f"https://vincheck.info/check/report-summary?vin={vin}",
+            wait_for="[class*='bg-green-500'], [class*='bg-red-500']", progress=progress)
+        if html and vin.lower() in html.lower():
+            return html
     try:
         s = cr.Session(impersonate="chrome")  # type: ignore[call-arg]
     except TypeError:
         s = cr.Session()
-    for url in (f"https://vincheck.info/vehicle/{vin}", f"https://vincheck.info/?vin={vin}"):
+    for url in (f"https://vincheck.info/check/report-summary?vin={vin}",
+                f"https://vincheck.info/?vin={vin}"):
         try:
             r = s.get(url, timeout=HIST_TIMEOUT)
             if r.status_code == 200 and len(r.text) > 1000:
@@ -243,26 +267,43 @@ def _parse_vincheck(html: str, report: HistoryReport, vin: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
+def _save_fixture(directory: Path, vin: str, html: str) -> None:
+    """Cache a good auto-fetched render so the next run is instant (and builds up
+    the fixture library on its own). Best-effort."""
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{vin}.html").write_text(html)
+    except OSError:
+        pass
+
+
 def get_history(vin: str, statvin_fixture: Path | None = None,
-                vincheck_fixture: Path | None = None) -> HistoryReport:
+                vincheck_fixture: Path | None = None, decoded=None,
+                progress=None) -> HistoryReport:
     report = HistoryReport()
-    # Frictionless capture: drop <VIN>.html into automation_html/statvin|vincheck/
-    # and it's picked up automatically — no --statvin-fixture/--vincheck-fixture needed.
+    # Use an explicit fixture, else an already-cached one, else auto-fetch (browser)
+    # and cache the result if it produced a definitive verdict.
     if statvin_fixture is None and (f := STATVIN_DIR / f"{vin}.html").exists():
         statvin_fixture = f
     if vincheck_fixture is None and (f := VINCHECK_DIR / f"{vin}.html").exists():
         vincheck_fixture = f
 
-    s_html = statvin_fixture.read_text(errors="ignore") if statvin_fixture else _statvin_fetch(vin)
-    if s_html:
+    if statvin_fixture:
+        _parse_statvin(statvin_fixture.read_text(errors="ignore"), report, vin)
+    elif (s_html := _statvin_fetch(vin, decoded, progress)):
         _parse_statvin(s_html, report, vin)
+        if report.auction_status != "inconclusive":
+            _save_fixture(STATVIN_DIR, vin, s_html)
     else:
-        report.notes.append("stat.vin unreachable (network or bot protection)")
+        report.notes.append("stat.vin unreachable (Cloudflare/bot protection)")
 
-    v_html = vincheck_fixture.read_text(errors="ignore") if vincheck_fixture else _vincheck_fetch(vin)
-    if v_html:
+    if vincheck_fixture:
+        _parse_vincheck(vincheck_fixture.read_text(errors="ignore"), report, vin)
+    elif (v_html := _vincheck_fetch(vin, progress)):
         _parse_vincheck(v_html, report, vin)
+        if report.title_status != "inconclusive":
+            _save_fixture(VINCHECK_DIR, vin, v_html)
     else:
-        report.notes.append("vincheck.info unreachable (network or bot protection)")
+        report.notes.append("vincheck.info unreachable (Cloudflare/bot protection)")
 
     return report

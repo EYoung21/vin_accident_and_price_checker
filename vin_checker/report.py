@@ -39,7 +39,7 @@ def build_report(
     p("finding comparable listings")
     comps = get_comps(decoded, mileage=mileage)
     p("checking title + salvage history")
-    history = get_history(vin, statvin_fixture, vincheck_fixture)
+    history = get_history(vin, statvin_fixture, vincheck_fixture, decoded=decoded, progress=progress)
     p("checking recalls + safety ratings")
     recalls = get_recalls(decoded)
     safety = get_safety_ratings(decoded)

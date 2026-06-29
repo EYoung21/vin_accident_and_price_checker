@@ -11,6 +11,11 @@ curl_cffi>=0.7
 # Falls back to a plain line reader if not installed.
 prompt_toolkit>=3.0
 
+# Headless browser to auto-fetch the Cloudflare/JS-walled history sites
+# (stat.vin / vincheck.info). Needs a one-time `python -m playwright install
+# chromium`; the launcher does this for you. Falls back to manual capture.
+playwright>=1.40
+
 # Optional: only needed for the LLM listing-parse / ranking layer (Bedrock).
 # Safe to leave uninstalled if you run with --no-llm.
 boto3>=1.34
