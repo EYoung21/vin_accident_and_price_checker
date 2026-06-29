@@ -120,14 +120,16 @@ def negotiate_offer(
 def _draft_reply(report: VehicleReport, context: str, offer: int) -> str | None:
     """A short, ready-to-send message continuing the negotiation with the seller."""
     system = (
-        "Write a short message I will send a PRIVATE car seller to continue our "
-        "negotiation (or to open with an offer if there's no prior chat). Pick up "
-        "naturally from where the conversation already is — acknowledge any price "
-        "they've already come down to, don't contradict what was agreed. Tone: "
-        "friendly but firm, like a normal buyer texting — NOT a form letter, and "
-        "never mention any tool, report, or AI. Use the concrete facts (salvage/"
-        "title, auction record, odometer, needed repairs, comps) as the reason for "
-        f"my number, and clearly land on ${offer:,}. 2-5 sentences. "
+        "Write my next text to a PRIVATE car seller — it must read as a natural REPLY "
+        "to their MOST RECENT message. First acknowledge what they just said or did "
+        "(e.g., sent the VIN, said it's well maintained, offered a deal, marked it "
+        "available), then continue. Match their casual texting tone; sound like a real "
+        "person, NOT a form letter, and never mention any tool/report/AI. "
+        "If a price was already agreed, confirm it. If they already came down, build "
+        "from that. If NO price has been discussed yet, don't lowball out of nowhere — "
+        "show genuine interest and raise the number gently, e.g. 'would you do $X?', "
+        "using any noted issues (repairs, mileage, history) as soft justification. "
+        f"Land on ${offer:,}. Keep it 2-4 sentences. "
         'Return ONLY JSON: {"message": str}.'
     )
     user = f"FINDINGS:\n{_market_summary(report)}\n\nCONVERSATION SO FAR:\n{context[:_CTX_LIMIT]}"

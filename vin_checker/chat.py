@@ -97,21 +97,23 @@ def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="")
     if not (sys.stdin.isatty() and llm.available()):
         return
     system = _SYSTEM_PREFIX + _briefing(report, research, neg, pros or [], cons or [], context)
+    from .promptio import read_block
     print("\n💬 Chat about this car — specs, problems, negotiation. It can search the "
           "web. Press Enter on a blank line (or 'q') to quit.")
     messages: list[dict] = []
     while True:
-        try:
-            q = input("\nyou> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-        if not q or q.lower() in ("q", "quit", "exit"):
+        print()
+        q = read_block(ps="you> ", show_hint=False).strip()  # paste-aware: a pasted
+        if not q or q.lower() in ("q", "quit", "exit"):       # thread = ONE message
             break
         messages.append({"role": "user", "content": q})
         print(paint("  … thinking", DIM), file=sys.stderr, flush=True)
-        ans = (llm.chat_with_search(system, messages, websearch.search)
-               or llm.chat_text(system, messages))
+        try:
+            ans = (llm.chat_with_search(system, messages, websearch.search)
+                   or llm.chat_text(system, messages))
+        except KeyboardInterrupt:
+            print("\n(stopped)")
+            break
         if not ans:
             print("  (no response — try again)")
             messages.pop()

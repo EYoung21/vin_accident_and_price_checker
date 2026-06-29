@@ -57,77 +57,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def _read_block_basic(prompt: str) -> str:
-    """Fallback reader (piped input, or no prompt_toolkit): blank line / Ctrl-D ends."""
-    print(prompt)
-    print("(paste it all, then press Enter on an empty line to finish)")
-    lines: list[str] = []
-    while True:
-        try:
-            line = input()
-        except EOFError:  # Ctrl-D also finishes
-            break
-        if line.strip() == "":
-            if lines:  # a blank line after some content = done
-                break
-            continue   # ignore blank lines before any content
-        lines.append(line)
-    return "\n".join(lines).strip()
-
-
-def _read_block(prompt: str) -> str:
-    """Claude-Code-style paste: bracketed paste keeps a multi-line block intact
-    (internal blank lines don't submit early); a single Enter sends it."""
-    if not sys.stdin.isatty():
-        return _read_block_basic(prompt)
-    try:
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.keys import Keys
-    except ImportError:
-        return _read_block_basic(prompt)
-
-    print(prompt)
-    print("(paste freely — big pastes collapse to a placeholder; Enter sends, "
-          "Option+Enter / Shift+Enter = new line)")
-    kb = KeyBindings()
-    pastes: dict[str, str] = {}  # placeholder token -> real pasted text
-
-    @kb.add("enter")          # Enter (\r) submits
-    def _(event):
-        event.current_buffer.validate_and_handle()
-
-    @kb.add("c-j")              # Shift+Enter (mappable terminals) / \n
-    @kb.add("escape", "enter")  # Option/Esc+Enter (works everywhere)
-    def _(event):
-        event.current_buffer.insert_text("\n")
-
-    @kb.add(Keys.BracketedPaste)  # collapse multi-line pastes, Claude-Code-style
-    def _(event):
-        # Pasted text may use \r or \r\n as line separators — normalize so the line
-        # count is right and the stored text has real newlines.
-        data = event.data.replace("\r\n", "\n").replace("\r", "\n")
-        if "\n" not in data and len(data) <= 80:
-            event.current_buffer.insert_text(data)  # small paste → inline
-            return
-        token = f"[Pasted text #{len(pastes) + 1} +{data.count(chr(10)) + 1} lines]"
-        pastes[token] = data
-        event.current_buffer.insert_text(token)
-
-    try:
-        text = PromptSession(multiline=True, key_bindings=kb).prompt("> ")
-    except (EOFError, KeyboardInterrupt):
-        return ""
-    for token, data in pastes.items():  # expand placeholders back to real text
-        text = text.replace(token, data)
-    return text.strip()
-
-
 def _interactive() -> tuple[str, int | None, str]:
     print("=== VIN checker — paste a car you're looking at ===\n")
     # Paste FIRST (this is the collapse-aware block), then pull VIN + mileage out of
     # it. This way there's one place to paste and it always behaves like Claude Code.
-    context = _read_block(
+    from vin_checker.promptio import read_block
+    context = read_block(
         "Paste everything — the listing + your chat with the seller (or just a VIN):")
 
     from vin_checker.listing_parse import parse_listing
