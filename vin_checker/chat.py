@@ -14,7 +14,7 @@ import sys
 import textwrap
 
 from . import llm, websearch
-from .report import BOLD, DIM, paint
+from .report import BOLD, CYAN, DIM, GRN, RED, YEL, paint
 
 _SYSTEM_PREFIX = (
     "You are my used-car buying advisor. Everything currently known about the car "
@@ -180,6 +180,65 @@ def _briefing_from_log(rec: dict) -> str:
     return "\n".join(L)
 
 
+def _show_logged(rec: dict) -> None:
+    """Print the car's current info on file (colored) so you see what's loaded."""
+    res = rec.get("research") or {}
+    v = rec.get("verdict", "")
+    vcolor = (RED if "HARD PASS" in v else YEL if "CAUTION" in v else
+              GRN if "CLEAN" in v else DIM)
+
+    def kv(label, val):
+        if not val:
+            return
+        wrapped = textwrap.wrap(str(val), 78)
+        print("   " + paint(label + ": ", CYAN) + wrapped[0])
+        for line in wrapped[1:]:
+            print("      " + line)
+
+    print("\n  " + paint(v, vcolor, BOLD))
+    print("  " + paint(rec.get("vehicle", "?"), BOLD)
+          + paint(f"   {rec.get('vin','')}"
+                  + (f"   {rec['mileage']:,} mi" if rec.get("mileage") else ""), DIM))
+    specs = "  ·  ".join(s for s in (
+        rec.get("body_class"), f"{rec['doors']}dr" if rec.get("doors") else "",
+        f"{rec['hp']} hp" if rec.get("hp") else "", rec.get("drive_type"),
+        rec.get("transmission")) if s)
+    if specs:
+        print("   " + paint(specs, DIM))
+    if rec.get("value_median"):
+        rng = (f"${rec.get('value_low'):,} – " if rec.get("value_low") else "")
+        rng += paint(f"${rec['value_median']:,}", GRN, BOLD)
+        rng += (f" – ${rec.get('value_high'):,}" if rec.get("value_high") else "")
+        kv("value", rng + "  (median)")
+    if rec.get("offer"):
+        tag = "deal agreed" if rec.get("deal_agreed") else "your offer"
+        print("   " + paint(tag + ": ", CYAN) + paint(f"${rec['offer']:,}", GRN, BOLD))
+    if rec.get("location"):
+        kv("distance", f"{rec.get('location')}"
+           + (f"  (~{rec['distance_mi']} mi away)" if rec.get("distance_mi") else ""))
+    kv("0-60", res.get("zero_to_sixty"))
+    kv("audio", res.get("audio"))
+    kv("bluetooth", res.get("connectivity"))
+    rel = []
+    if rec.get("recalls") is not None:
+        rel.append(f"{rec['recalls']} recalls")
+    if rec.get("complaints"):
+        rel.append(f"{rec['complaints']} complaints")
+    if rec.get("ncap"):
+        rel.append(f"NCAP {rec['ncap']}/5")
+    if rel:
+        kv("safety", "  ·  ".join(rel))
+    if res.get("common_problems"):
+        print("   " + paint("known problems:", YEL))
+        for x in res["common_problems"]:
+            for j, line in enumerate(textwrap.wrap(str(x), 72)):
+                print("      " + (paint("- ", YEL, BOLD) if j == 0 else "  ") + line)
+    if rec.get("chat_summary"):
+        print("   " + paint("prior discussion:", CYAN))
+        for line in rec["chat_summary"].splitlines():
+            print("      " + paint(line, DIM))
+
+
 def _pick_car(rows: list[dict]) -> dict | None:
     print("\nWhich car do you want to talk about?")
     for i, r in enumerate(rows, 1):
@@ -219,6 +278,8 @@ def chat_from_log(vin: str | None = None, use_llm: bool = True) -> None:
         rec = _pick_car(rows) if sys.stdin.isatty() else None
     if rec is None:
         return
+
+    _show_logged(rec)  # surface the car's current info on file before chatting
 
     prior = rec.get("chat_summary") or ""
     system = (_SYSTEM_PREFIX + _briefing_from_log(rec)
