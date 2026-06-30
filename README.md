@@ -46,6 +46,7 @@ vincheck                       # interactive: paste the listing+chat, it does th
 vincheck --list                # your backlog of checked cars, ranked best-to-worst
 vincheck --compare             # pick cars by number → colored scorecard + ranked pick + chat
 vincheck --compare VIN1 VIN2   # compare specific cars (full or partial VINs)
+vincheck --chat                # pick a logged car and chat about it (no re-pasting)
 python cli.py --vin <VIN> --json
 ```
 
@@ -61,6 +62,11 @@ with the best car in each row highlighted, per-car detail blocks (look/drive,
 audio/speakers, bluetooth, problems), then an LLM ranking weighted to what you care
 about, then a chat about the comparison. Cars logged before research existed are
 back-filled on first compare and cached.
+
+`--chat` loads a single previously-logged car (no re-pasting) and drops into the
+same web-searching chat, briefed from the stored data. Conversations aren't saved
+verbatim; on exit a short dated summary is stored in that car's log record, so the
+next `--chat` on it resumes with the prior discussion in context.
 
 ## The two sites that need a captured HTML sample
 

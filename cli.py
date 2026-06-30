@@ -48,6 +48,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--compare", nargs="*", metavar="VIN", default=None,
                    help="LLM compares cars you've checked (all by default; or list "
                         "VINs to compare just those, e.g. --compare WAUA.. WAUB..)")
+    p.add_argument("--chat", nargs="?", const="", default=None, metavar="VIN",
+                   help="chat about a car you've already logged (no VIN → pick from a "
+                        "list); reuses stored data, no re-pasting")
     p.add_argument("--json", action="store_true", help="emit JSON instead of a card")
     p.add_argument("--plain", action="store_true", help="plain text instead of the card")
     p.add_argument("--no-color", action="store_true", help="disable ANSI colors")
@@ -103,6 +106,12 @@ def main(argv: list[str] | None = None) -> int:
         from vin_checker.compare import run as run_compare
 
         run_compare(vins=args.compare or None, use_llm=not args.no_llm)
+        return 0
+
+    if args.chat is not None:
+        from vin_checker.chat import chat_from_log
+
+        chat_from_log(vin=args.chat or None, use_llm=not args.no_llm)
         return 0
 
     context = ""
@@ -194,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         neg = negotiate_offer(report, context,
                               listing_price=current_listing_price(context), progress=prog)
 
+    convo = None
     if args.plain:
         print(render_text(report))
         print(render_distance(dist))
@@ -214,10 +224,17 @@ def main(argv: list[str] | None = None) -> int:
         # Follow-up Q&A (interactive only), briefed on everything + web search.
         if not args.no_llm and not args.no_chat:
             from vin_checker.chat import chat_loop
-            chat_loop(report, research=res, neg=neg, pros=pros, cons=cons, context=context)
+            convo = chat_loop(report, research=res, neg=neg, pros=pros, cons=cons,
+                              context=context)
 
     # Log this check so `vincheck --list` can rank cars you're comparing.
     from vin_checker.logstore import save_check
+
+    # Stash a short summary of the follow-up chat so `--chat` can resume it later.
+    chat_summary = None
+    if convo:
+        from vin_checker.chat import summarize_chat
+        chat_summary = summarize_chat(convo, use_llm=not args.no_llm)
 
     banner, _ = verdict(report)
     d = report.decoded
@@ -238,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         "ncap": report.safety.overall if report.safety else None,
         "recalls": (None if report.recalls.error else report.recalls.count),
         "complaints": report.recalls.complaint_count,
+        "chat_summary": chat_summary,
         "research": {
             "zero_to_sixty": res.zero_to_sixty, "performance": res.performance,
             "audio": res.audio, "connectivity": res.connectivity,

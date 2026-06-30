@@ -93,11 +93,12 @@ def _briefing(report, research, neg, pros, cons, context) -> str:
     return "\n".join(L)
 
 
-def converse(system: str, intro: str) -> None:
+def converse(system: str, intro: str) -> list[dict]:
     """Reusable chat loop (web-search enabled, paste-aware, formatted). Interactive
-    only. Used for both the single-car follow-up and the comparison follow-up."""
+    only. Returns the conversation (so callers can summarize/persist it). Used for the
+    single-car follow-up, the load-from-log chat, and the comparison follow-up."""
     if not (sys.stdin.isatty() and llm.available()):
-        return
+        return []
     from .promptio import read_block
     print(intro)
     messages: list[dict] = []
@@ -121,9 +122,118 @@ def converse(system: str, intro: str) -> None:
         messages.append({"role": "assistant", "content": ans})
         print(paint("  " + "─" * 58, DIM))
         print(_fmt(ans))
+    return messages
 
 
-def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="") -> None:
+def chat_loop(report, research=None, neg=None, pros=None, cons=None, context="",
+              prior_notes: str = "") -> list[dict]:
     system = _SYSTEM_PREFIX + _briefing(report, research, neg, pros or [], cons or [], context)
-    converse(system, "\n💬 Chat about this car — specs, problems, negotiation. It can "
-                     "search the web. Press Enter on a blank line (or 'q') to quit.")
+    if prior_notes:
+        system += "\n\nPRIOR DISCUSSION NOTES (from earlier chats about this car):\n" + prior_notes
+    return converse(system, "\n💬 Chat about this car — specs, problems, negotiation. It "
+                            "can search the web. Press Enter on a blank line (or 'q') to quit.")
+
+
+def summarize_chat(messages: list[dict], use_llm: bool = True) -> str | None:
+    """Condense a finished chat into a few bullet lines to stash in the car's log, so a
+    later `--chat` can pick the conversation back up."""
+    if not messages or not (use_llm and llm.available()):
+        return None
+    convo = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+    system = ("Summarize this buyer's chat about a specific used car into 2-4 short "
+              "bullet lines capturing what was asked/decided (concerns raised, advice "
+              "given, negotiation/plan, next steps). Terse, factual, no preamble. "
+              "Start each line with '- '.")
+    return llm.chat_text(system, [{"role": "user", "content": convo[:8000]}], max_tokens=300) or None
+
+
+def _briefing_from_log(rec: dict) -> str:
+    """Rebuild a single-car briefing from a stored log record (no re-fetch)."""
+    res = rec.get("research") or {}
+    L = [f"VEHICLE: {rec.get('vehicle','?')}  (VIN {rec.get('vin','')})"]
+    if rec.get("mileage"):
+        L.append(f"MILEAGE: {rec['mileage']:,}")
+    specs = "  ·  ".join(s for s in (
+        rec.get("body_class"), f"{rec['doors']}dr" if rec.get("doors") else "",
+        f"{rec['hp']} hp" if rec.get("hp") else "", rec.get("drive_type"),
+        rec.get("transmission")) if s)
+    if specs:
+        L.append("SPECS: " + specs)
+    if rec.get("value_median"):
+        L.append(f"VALUE (comps): low ${rec.get('value_low') or '?'} / median "
+                 f"${rec['value_median']:,} / high ${rec.get('value_high') or '?'}")
+    if rec.get("offer"):
+        tag = "DEAL AGREED" if rec.get("deal_agreed") else "recommended offer"
+        L.append(f"{tag}: ${rec['offer']:,}")
+    L.append(f"VERDICT: {rec.get('verdict','?')}")
+    if rec.get("ncap") or rec.get("recalls") is not None:
+        L.append(f"SAFETY: {rec.get('recalls','?')} recalls, {rec.get('complaints',0) or 0} "
+                 f"complaints" + (f", NCAP {rec['ncap']}/5" if rec.get("ncap") else ""))
+    if res.get("zero_to_sixty") or res.get("audio"):
+        L.append(f"0-60: {res.get('zero_to_sixty','?')} | drive: {res.get('performance','?')}")
+        L.append(f"audio: {res.get('audio','?')} | bluetooth: {res.get('connectivity','?')}")
+    if res.get("common_problems"):
+        L.append("COMMON PROBLEMS: " + "; ".join(res["common_problems"]))
+    if rec.get("location"):
+        L.append(f"LOCATION: {rec['location']}"
+                 + (f" (~{rec['distance_mi']} mi away)" if rec.get("distance_mi") else ""))
+    return "\n".join(L)
+
+
+def _pick_car(rows: list[dict]) -> dict | None:
+    print("\nWhich car do you want to talk about?")
+    for i, r in enumerate(rows, 1):
+        dist = f" · {r['distance_mi']} mi" if r.get("distance_mi") else ""
+        offer = f" · offer ${r['offer']:,}" if r.get("offer") else ""
+        print(f"  {i}. {r.get('verdict','?')} {r.get('vehicle','?')}{offer}{dist}"
+              f"  ({r.get('location','?') or '?'})")
+    try:
+        sel = input("\nPick a number: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    nums = re.findall(r"\d+", sel)
+    if not nums:
+        return None
+    i = int(nums[0])
+    return rows[i - 1] if 1 <= i <= len(rows) else None
+
+
+def chat_from_log(vin: str | None = None, use_llm: bool = True) -> None:
+    """Load a previously-checked car from the log and chat about it — no re-pasting.
+    No VIN given → pick from a numbered list. Persists a short summary on exit."""
+    from .logstore import ranked, save_check
+    rows = ranked()
+    if not rows:
+        print("No cars logged yet — run `vincheck` on a car first.")
+        return
+
+    rec = None
+    if vin:
+        want = vin.upper()
+        matches = [r for r in rows if want in r.get("vin", "").upper()]
+        if not matches:
+            print(f"No logged car matches '{vin}'.")
+        else:
+            rec = matches[0]
+    if rec is None:
+        rec = _pick_car(rows) if sys.stdin.isatty() else None
+    if rec is None:
+        return
+
+    prior = rec.get("chat_summary") or ""
+    system = (_SYSTEM_PREFIX + _briefing_from_log(rec)
+              + ("\n\nPRIOR DISCUSSION NOTES (earlier chats about this car):\n" + prior
+                 if prior else ""))
+    convo = converse(system, f"\n💬 Chatting about your {rec.get('vehicle','car')}. Ask "
+                             "anything — specs, problems, negotiation. It can search the "
+                             "web. Enter on a blank line (or 'q') to quit.")
+
+    # Persist a rolling summary so the next --chat continues where this left off.
+    summary = summarize_chat(convo, use_llm)
+    if summary:
+        from datetime import date
+        entry = f"[{date.today().isoformat()}]\n{summary}"
+        combined = ((prior + "\n" + entry) if prior else entry).strip()[-2000:]
+        save_check({**{k: v for k, v in rec.items() if not k.startswith("_")},
+                    "chat_summary": combined})
+        print(paint("\n  (saved a summary to this car's log)", DIM))
